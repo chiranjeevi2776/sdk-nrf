@@ -1386,24 +1386,11 @@ struct nrf_wifi_umac_event_scan_done {
 #define MCAST_ADDR_ADD 0
 #define MCAST_ADDR_DEL 1
 
-/**
- * struct nrf_wifi_umac_mcast_cfg - mcast related information.
- *
- * @type: Add (0) or Delete (1)
- * @mac-addr: multicast address to be added/deleted.
- */
 struct nrf_wifi_umac_mcast_cfg {
 	unsigned int type;
 	unsigned char mac_addr[NRF_WIFI_ETH_ADDR_LEN];
 } __NRF_WIFI_PKD;
 
-/**
- * struct nrf_wifi_umac_cmd_mcast_filter - set mcast address
- *
- * @umac_hdr: Refer to &struct nrf_wifi_umac_hdr.
- * @info: Refer to &struct nrf_wifi_umac_mcast_cfg.
- *
- */
 struct nrf_wifi_umac_cmd_mcast_filter {
 	struct nrf_wifi_umac_hdr umac_hdr;
 	struct nrf_wifi_umac_mcast_cfg info;
@@ -2629,6 +2616,12 @@ enum nrf_wifi_twt_setup_cmd_type {
 
 #define NRF_WIFI_TWT_FLOW_TYPE_ANNOUNCED 0
 #define NRF_WIFI_TWT_FLOW_TYPE_UNANNOUNCED 1
+
+#define NRF_WIFI_TWT_RESP_NOT_RECIEVED 0
+#define NRF_WIFI_TWT_RESP_RECIEVED 1
+#define NRF_WIFI_TWT_REQ_SENT 2
+#define NRF_WIFI_TWT_RESP_PROCESSING 3
+
 /**
  * struct nrf_wifi_umac_config_twt_info - TWT params info.
  * @twt_flow_id: TWT flow Id.
@@ -2644,6 +2637,7 @@ enum nrf_wifi_twt_setup_cmd_type {
  * @target_wake_time: start of the waketime value after successful TWT negotiation
  * @nominal_min_twt_wake_duration: min TWT wake duration
  * @dialog_token: dialog_token of twt frame.
+ * @twt_resp_status: 0->not recieved 1->recieved.
  * This structure represents the command provides TWT information.
  */
 
@@ -2660,6 +2654,7 @@ struct nrf_wifi_umac_config_twt_info {
 	unsigned long long target_wake_time;
 	unsigned short nominal_min_twt_wake_duration;
 	unsigned char dialog_token;
+	unsigned char twt_resp_status;
 } __NRF_WIFI_PKD;
 
 /**
@@ -3168,10 +3163,22 @@ struct nrf_wifi_umac_cmd_conn_info {
 	struct nrf_wifi_umac_hdr umac_hdr;
 } __NRF_WIFI_PKD;
 
+enum link_mode {
+	NRF_WIFI_MODE_11B=1,
+	NRF_WIFI_MODE_11A,
+	NRF_WIFI_MODE_11G,
+	NRF_WIFI_MODE_11N,
+	NRF_WIFI_MODE_11AC,
+	NRF_WIFI_MODE_11AX
+};
+
 struct nrf_wifi_umac_event_conn_info {
 	struct nrf_wifi_umac_hdr umac_hdr;
 	unsigned short beacon_interval;
 	unsigned char dtim_interval;
+	unsigned char associated;
+	unsigned char twt_capable;
+	unsigned char linkmode;
 } __NRF_WIFI_PKD;
 
 struct nrf_wifi_umac_cmd_get_power_save_info {
