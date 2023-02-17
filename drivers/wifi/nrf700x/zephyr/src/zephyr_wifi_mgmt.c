@@ -476,6 +476,7 @@ void wifi_nrf_event_proc_twt_setup_zep(void *vif_ctx,
 	target_wake_time_ms = ldexp(mantissa, exponent);
 	twt_params.setup.twt_interval_ms = (target_wake_time_ms);
 	twt_params.dialog_token = twt_setup_info->info.dialog_token;
+	twt_params.resp_status = twt_setup_info->info.twt_resp_status;
 
 	wifi_mgmt_raise_twt_event(vif_ctx_zep->zep_net_if_ctx, &twt_params);
 }
