@@ -28,6 +28,11 @@ LOG_MODULE_REGISTER(sta, CONFIG_LOG_DEFAULT_LEVEL);
 
 #include "net_private.h"
 
+#include <zephyr/net/socket.h>
+#define PORT	 1337
+#define MAXLINE 1024
+#define MSG_WAITALL ZSOCK_MSG_WAITALL
+
 #define WIFI_SHELL_MODULE "wifi"
 
 #define WIFI_SHELL_MGMT_EVENTS (NET_EVENT_WIFI_CONNECT_RESULT |		\
@@ -64,6 +69,49 @@ static struct {
 		uint8_t all;
 	};
 } context;
+
+int udp_server(void) {
+
+	int sockfd;
+	char buffer[MAXLINE];
+	char *hello = "Hello";
+	struct sockaddr_in servaddr, cliaddr;
+
+	// Creating socket file descriptor
+	if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
+		LOG_ERR("socket creation failed - %d", errno);
+		return -errno;
+	}
+
+	memset(&servaddr, 0, sizeof(servaddr));
+	memset(&cliaddr, 0, sizeof(cliaddr));
+
+	// Filling server information
+	servaddr.sin_family = AF_INET; // IPv4
+	servaddr.sin_addr.s_addr = INADDR_ANY;
+	servaddr.sin_port = htons(PORT);
+
+	// Bind the socket with the server address
+	if ( bind(sockfd, (const struct sockaddr *)&servaddr,
+				sizeof(servaddr)) < 0 )
+	{
+		LOG_ERR("bind failed %d", errno);
+		return -errno;
+	}
+
+	int len, n;
+	len = sizeof(cliaddr); //len is value/result
+
+	while(true) {
+		n = recvfrom(sockfd, (char *)buffer, MAXLINE,
+				MSG_WAITALL, ( struct sockaddr *) &cliaddr,
+				&len);
+		buffer[n] = '\0';
+		LOG_INF("Message client : %s\n", buffer);
+	}
+
+	return 0;
+}
 
 void toggle_led(void)
 {
@@ -346,6 +394,7 @@ int main(void)
 			}
 		}
 		if (context.connected) {
+			udp_server();
 			k_sleep(K_FOREVER);
 		} else if (!context.connect_result) {
 			LOG_ERR("Connection Timed Out");
