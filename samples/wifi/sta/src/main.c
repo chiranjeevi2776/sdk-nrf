@@ -36,7 +36,8 @@ LOG_MODULE_REGISTER(sta, CONFIG_LOG_DEFAULT_LEVEL);
 #define WIFI_SHELL_MODULE "wifi"
 
 #define WIFI_SHELL_MGMT_EVENTS (NET_EVENT_WIFI_CONNECT_RESULT |		\
-				NET_EVENT_WIFI_DISCONNECT_RESULT)
+				NET_EVENT_WIFI_DISCONNECT_RESULT | \
+				NET_EVENT_WIFI_TWT_SLEEP_STATE)
 
 #define MAX_SSID_LEN        32
 #define DHCP_TIMEOUT        70
@@ -69,6 +70,42 @@ static struct {
 		uint8_t all;
 	};
 } context;
+
+unsigned int twt_setup = 0;
+
+int setupTWT()
+{
+        //struct net_if *iface = net_if_get_first_wifi();
+	struct net_if *iface = net_if_get_default();
+        struct wifi_twt_params params = { 0 };
+
+        params.operation = WIFI_TWT_SETUP;
+
+        params.negotiation_type = 0;
+        params.setup_cmd = 0;
+	params.dialog_token = 1;
+	params.flow_id = 1;
+	params.setup.responder = 0;
+	params.setup.trigger = 1;
+	params.setup.implicit = 1;
+	params.setup.announce = 1;
+	params.setup.twt_wake_interval = 65000;
+	params.setup.twt_interval = 524000;
+
+        if (net_mgmt(NET_REQUEST_WIFI_TWT, iface, &params, sizeof(params))) {
+		LOG_INF("TWT SETUP FAILED\n");
+
+                return -ENOEXEC;
+        }
+
+        LOG_INF("TWT operation %s with dg: %d, flow_id: %d requested\n",
+                wifi_twt_operation2str[params.operation],
+                params.dialog_token, params.flow_id);
+
+	twt_setup = 1;
+
+        return 0;
+}
 
 int udp_server(void) {
 
@@ -224,10 +261,14 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
 {
 	switch (mgmt_event) {
 	case NET_EVENT_WIFI_CONNECT_RESULT:
+		LOG_INF("CHIRANJEEVi\n");
 		handle_wifi_connect_result(cb);
 		break;
 	case NET_EVENT_WIFI_DISCONNECT_RESULT:
 		handle_wifi_disconnect_result(cb);
+		break;
+	case NET_EVENT_WIFI_TWT_SLEEP_STATE:
+		LOG_INF("TWT EVENT RECV\n");
 		break;
 	default:
 		break;
@@ -262,7 +303,8 @@ static int __wifi_args_to_params(struct wifi_connect_req_params *params)
 	params->timeout = SYS_FOREVER_MS;
 
 	/* SSID */
-	params->ssid = CONFIG_STA_SAMPLE_SSID;
+	params->ssid = "TWT_NETGEAR_2G"; //CONFIG_STA_SAMPLE_SSID;
+	//strcpy(&params->ssid[0], "TWT_NETGEAR_2G");
 	params->ssid_length = strlen(params->ssid);
 
 #if defined(CONFIG_STA_KEY_MGMT_WPA2)
@@ -394,6 +436,7 @@ int main(void)
 			}
 		}
 		if (context.connected) {
+			setupTWT();
 			udp_server();
 			k_sleep(K_FOREVER);
 		} else if (!context.connect_result) {
