@@ -15,6 +15,7 @@ LOG_MODULE_REGISTER(sta, CONFIG_LOG_DEFAULT_LEVEL);
 #include <zephyr/kernel.h>
 #include <stdio.h>
 #include <stdlib.h>
+//#include <unistd.h>
 #include <zephyr/shell/shell.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/init.h>
@@ -29,15 +30,19 @@ LOG_MODULE_REGISTER(sta, CONFIG_LOG_DEFAULT_LEVEL);
 #include "net_private.h"
 
 #include <zephyr/net/socket.h>
+
 #define PORT	 1337
 #define MAXLINE 1024
 #define MSG_WAITALL ZSOCK_MSG_WAITALL
 
 #define WIFI_SHELL_MODULE "wifi"
 
+//#define WIFI_SHELL_MGMT_EVENTS (NET_EVENT_WIFI_CONNECT_RESULT |		\
+//				NET_EVENT_WIFI_DISCONNECT_RESULT | \
+//				NET_EVENT_WIFI_TWT_SLEEP_STATE)
+
 #define WIFI_SHELL_MGMT_EVENTS (NET_EVENT_WIFI_CONNECT_RESULT |		\
-				NET_EVENT_WIFI_DISCONNECT_RESULT | \
-				NET_EVENT_WIFI_TWT_SLEEP_STATE)
+				NET_EVENT_WIFI_DISCONNECT_RESULT)
 
 #define MAX_SSID_LEN        32
 #define DHCP_TIMEOUT        70
@@ -72,6 +77,14 @@ static struct {
 } context;
 
 unsigned int twt_setup = 0;
+int sockfd;
+struct sockaddr_in server_addr, client_addr;
+socklen_t addr_len = sizeof(server_addr);
+char buffer[1024] = "hello\n";
+#define SERVER_IP "192.168.1.140"  // Replace with the IP address of the server
+#define SERVER_PORT 6788      // Replace with the port number used by the server
+volatile int stop_traffic = 1;
+unsigned int sleepCnt = 0, awakeCnt = 0;
 
 int setupTWT()
 {
@@ -107,6 +120,69 @@ int setupTWT()
         return 0;
 }
 
+
+int udp_client()
+{
+
+	// Create UDP socket
+	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+		LOG_INF("socket creation failed");
+		return -errno;
+	}
+
+	memset(&client_addr, 0, sizeof(client_addr));
+
+	// Configure client address
+	client_addr.sin_family = AF_INET;
+	client_addr.sin_addr.s_addr = INADDR_ANY;
+	client_addr.sin_port = htons(0);  // Bind to any available port
+
+	// Bind the socket to the client address
+	if (bind(sockfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+		LOG_INF("bind failed");
+		return -errno;
+	}
+
+	memset(&server_addr, 0, sizeof(server_addr));
+
+	// Configure server address
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_port = htons(SERVER_PORT);
+	if (inet_pton(AF_INET, SERVER_IP, &(server_addr.sin_addr)) <= 0) {
+		LOG_INF("inet_pton failed");
+		return -errno;
+	}
+
+	// Send data to the server
+	while(1)
+	{
+		if(stop_traffic == 0)
+		{
+			++awakeCnt;
+			if(awakeCnt%500 == 0)
+			{
+				LOG_INF("AWAKE CNT %d\n", awakeCnt);
+			}
+			sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&server_addr, addr_len);
+			k_sleep(K_USEC(100));
+		} else {
+			++sleepCnt;
+			if(sleepCnt%500 == 0)
+			{
+				LOG_INF("sleep CNT %d\n", sleepCnt);
+			}
+			k_sleep(K_MSEC(5));
+		}
+	}
+
+	// Close the socket
+//	close(sockfd);
+
+	return 0;
+}
+
+#if 0
+
 int udp_server(void) {
 
 	int sockfd;
@@ -139,6 +215,7 @@ int udp_server(void) {
 	int len, n;
 	len = sizeof(cliaddr); //len is value/result
 
+	LOG_INF("UDP SERVER STARTED\n");
 	while(true) {
 		n = recvfrom(sockfd, (char *)buffer, MAXLINE,
 				MSG_WAITALL, ( struct sockaddr *) &cliaddr,
@@ -149,6 +226,7 @@ int udp_server(void) {
 
 	return 0;
 }
+#endif
 
 void toggle_led(void)
 {
@@ -267,9 +345,27 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
 	case NET_EVENT_WIFI_DISCONNECT_RESULT:
 		handle_wifi_disconnect_result(cb);
 		break;
+#if 1
 	case NET_EVENT_WIFI_TWT_SLEEP_STATE:
-		LOG_INF("TWT EVENT RECV\n");
+		{
+			int *a;
+			a = ( int *)(cb->info);
+			if(*a == WIFI_TWT_STATE_SLEEP)
+			{
+				stop_traffic = 1;
+			//      LOG_INF("======TWT SLEEP======\n");	
+			}
+			else if(*a == WIFI_TWT_STATE_AWAKE)
+			{
+				stop_traffic = 0;
+			//       LOG_INF("######TWT AWAKE######\n");	
+			}
+			else
+			       LOG_INF("UNKNOWN TWT STATE %d \n", *a);	
+
+		}
 		break;
+#endif
 	default:
 		break;
 	}
@@ -435,9 +531,12 @@ int main(void)
 				break;
 			}
 		}
+			k_sleep(K_MSEC(5000));
 		if (context.connected) {
 			setupTWT();
-			udp_server();
+			k_sleep(K_MSEC(1000));
+			//udp_server();
+			udp_client();
 			k_sleep(K_FOREVER);
 		} else if (!context.connect_result) {
 			LOG_ERR("Connection Timed Out");
