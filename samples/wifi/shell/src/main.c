@@ -47,10 +47,10 @@ static K_HEAP_DEFINE(app_mem_pool, 1024 * 2);
 static int __wifi_args_to_params(struct wifi_connect_req_params *params)
 {
 	/* SSID */
-	params->ssid = "OpenWrt5";
+	params->ssid = "HE-5.60.1_24G";
 	params->ssid_length = strlen(params->ssid);
 	params->channel = WIFI_CHANNEL_ANY;
-	params->psk = "rasalghul";
+	params->psk = "12345678";
 	params->psk_length = strlen(params->psk);
 	params->security = WIFI_SECURITY_TYPE_PSK;
 	params->mfp = WIFI_MFP_OPTIONAL;
@@ -74,7 +74,7 @@ static int cmd_wifi_twt_setup_quick()
 	params.setup.trigger = 0;
 	params.setup.announce = 0;
 	params.setup.twt_wake_interval = 64 * 1024; /* 64ms */
-	params.setup.twt_interval = 60 * 1024 * 1024; /* 60s */
+	params.setup.twt_interval = 10 * 60 * 1024 * 1024; /* 60s */
 
 	if (net_mgmt(NET_REQUEST_WIFI_TWT, iface, &params, sizeof(params))) {
 		printf("%s with %s failed\n",
@@ -270,8 +270,8 @@ static int get_wifi_connect()
 #define ZEPHYR_ADDR     "2001:db8::1"
 #define SERVER_ADDR     "2001:db8::2"
 #else
-#define ZEPHYR_ADDR     "192.168.50.101"
-#define SERVER_ADDR     "192.168.50.174"
+#define ZEPHYR_ADDR     "192.168.1.101"
+#define SERVER_ADDR     "192.168.1.140"
 #endif
 #endif
 
@@ -715,14 +715,14 @@ void main(void)
 #endif
 
 	//test_mqtt_connect();
-	cmd_wifi_twt_setup_quick();
+	//cmd_wifi_twt_setup_quick();
 	//k_timer_init(&my_timer, my_expiry_function, NULL);
 	//k_timer_start(&my_timer, K_SECONDS(1), K_SECONDS(0));
 	//k_thread_start(app_thread);
 	//k_thread_join(app_thread, K_FOREVER);
 	while(1) {
 		i++;
-		cmd_wifi_twt_teardown_all();
+		//cmd_wifi_twt_teardown_all();
 		k_msleep(1000);
 		printf("===11caspar count: %d\n", i);
 		test_mqtt_connect();
@@ -734,9 +734,9 @@ void main(void)
 				printf("===caspar: test publish fail %s %d\n", __func__, __LINE__);
 			}
 		}
-		cmd_wifi_twt_setup_quick();
+		//cmd_wifi_twt_setup_quick();
 		//mqtt_disconnect(&client_ctx);
 		//connected = false;
-		k_msleep(60 * 1000);
+		k_msleep(600 * 1000);
 	}
 }
