@@ -73,7 +73,7 @@ static int cmd_wifi_twt_setup_quick()
 	params.setup.trigger = 1;
 	params.setup.announce = 1;
 	params.setup.twt_wake_interval_ms = 65;
-	params.setup.twt_interval_ms = 10 * 60 * 1000;
+	params.setup.twt_interval_ms = 1 * 60 * 1000;
 
 	if (net_mgmt(NET_REQUEST_WIFI_TWT, iface, &params, sizeof(params))) {
 		printf("%s with %s failed\n",
@@ -734,8 +734,8 @@ void main(void)
 			}
 		}
 		cmd_wifi_twt_setup_quick();
+		k_msleep(600 * 1000);
 		//mqtt_disconnect(&client_ctx);
 		//connected = false;
-		k_msleep(600 * 1000);
 	}
 }
