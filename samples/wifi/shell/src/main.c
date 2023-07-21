@@ -722,7 +722,7 @@ void main(void)
 	//k_thread_join(app_thread, K_FOREVER);
 	while(1) {
 		i++;
-		//cmd_wifi_twt_teardown_all();
+		cmd_wifi_twt_teardown_all();
 		k_msleep(1000);
 		printf("===11caspar count: %d\n", i);
 		test_mqtt_connect();
@@ -734,7 +734,7 @@ void main(void)
 				printf("===caspar: test publish fail %s %d\n", __func__, __LINE__);
 			}
 		}
-		//cmd_wifi_twt_setup_quick();
+		cmd_wifi_twt_setup_quick();
 		//mqtt_disconnect(&client_ctx);
 		//connected = false;
 		k_msleep(600 * 1000);
