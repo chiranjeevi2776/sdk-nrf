@@ -734,6 +734,7 @@ void main(void)
 				printf("===caspar: test publish fail %s %d\n", __func__, __LINE__);
 			}
 		}
+		k_msleep(4000);
 		cmd_wifi_twt_setup_quick();
 		//mqtt_disconnect(&client_ctx);
 		//connected = false;
