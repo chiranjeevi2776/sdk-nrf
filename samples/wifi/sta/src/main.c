@@ -86,6 +86,28 @@ char buffer[1024] = "hello\n";
 volatile int stop_traffic = 1;
 unsigned int sleepCnt = 0, awakeCnt = 0;
 
+
+//K_THREAD_DEFINE(udp_client_thread, 1024, udp_client, NULL, NULL, NULL, 7, 0, 0);
+//K_THREAD_DEFINE(udp_server_thread, 1024, udp_server, NULL, NULL, NULL, 7, 0, 0);
+
+#if 0
+#define STACK_SIZE 1024
+#define THREAD_PRIORITY 5
+
+// Define thread stacks
+K_THREAD_STACK_DEFINE(thread_stack1, STACK_SIZE);
+K_THREAD_STACK_DEFINE(thread_stack2, STACK_SIZE);
+
+// Define thread structures
+struct k_thread udp_client_thread;
+struct k_thread udp_server_thread;
+#endif
+
+// Define thread entry functions
+int udp_server(void);
+int udp_client(void);
+int create_udp_socket();
+
 int setupTWT()
 {
         //struct net_if *iface = net_if_get_first_wifi();
@@ -123,35 +145,8 @@ int setupTWT()
 
 int udp_client()
 {
-
-	// Create UDP socket
-	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-		LOG_INF("socket creation failed");
-		return -errno;
-	}
-
-	memset(&client_addr, 0, sizeof(client_addr));
-
-	// Configure client address
-	client_addr.sin_family = AF_INET;
-	client_addr.sin_addr.s_addr = INADDR_ANY;
-	client_addr.sin_port = htons(0);  // Bind to any available port
-
-	// Bind the socket to the client address
-	if (bind(sockfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
-		LOG_INF("bind failed");
-		return -errno;
-	}
-
-	memset(&server_addr, 0, sizeof(server_addr));
-
-	// Configure server address
-	server_addr.sin_family = AF_INET;
-	server_addr.sin_port = htons(SERVER_PORT);
-	if (inet_pton(AF_INET, SERVER_IP, &(server_addr.sin_addr)) <= 0) {
-		LOG_INF("inet_pton failed");
-		return -errno;
-	}
+	LOG_INF("UDP Clinet Started\n");
+	create_udp_socket();
 
 	// Send data to the server
 	while(1)
@@ -181,17 +176,17 @@ int udp_client()
 	return 0;
 }
 
-#if 0
+#if 1
 
-int udp_server(void) {
+int  udp_server(void) {
 
-	int sockfd;
-	char buffer[MAXLINE];
-	char *hello = "Hello";
+	int sockid;
+	char buffer1[MAXLINE];
 	struct sockaddr_in servaddr, cliaddr;
 
+	LOG_INF("UDP SERVER STARTED\n");
 	// Creating socket file descriptor
-	if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
+	if ( (sockid = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
 		LOG_ERR("socket creation failed - %d", errno);
 		return -errno;
 	}
@@ -205,7 +200,7 @@ int udp_server(void) {
 	servaddr.sin_port = htons(PORT);
 
 	// Bind the socket with the server address
-	if ( bind(sockfd, (const struct sockaddr *)&servaddr,
+	if ( bind(sockid, (const struct sockaddr *)&servaddr,
 				sizeof(servaddr)) < 0 )
 	{
 		LOG_ERR("bind failed %d", errno);
@@ -217,11 +212,11 @@ int udp_server(void) {
 
 	LOG_INF("UDP SERVER STARTED\n");
 	while(true) {
-		n = recvfrom(sockfd, (char *)buffer, MAXLINE,
+		n = recvfrom(sockid, (char *)buffer1, MAXLINE,
 				MSG_WAITALL, ( struct sockaddr *) &cliaddr,
 				&len);
-		buffer[n] = '\0';
-		LOG_INF("Message client : %s\n", buffer);
+		buffer1[n] = '\0';
+		LOG_INF("Message client : %s\n", buffer1);
 	}
 
 	return 0;
@@ -399,7 +394,7 @@ static int __wifi_args_to_params(struct wifi_connect_req_params *params)
 	params->timeout = SYS_FOREVER_MS;
 
 	/* SSID */
-	params->ssid = "TWT_NETGEAR_2G"; //CONFIG_STA_SAMPLE_SSID;
+	params->ssid = "LMAC_HE-5.60.1_24G"; //CONFIG_STA_SAMPLE_SSID;
 	//strcpy(&params->ssid[0], "TWT_NETGEAR_2G");
 	params->ssid_length = strlen(params->ssid);
 
@@ -466,6 +461,41 @@ int bytes_from_str(const char *str, uint8_t *bytes, size_t bytes_len)
 	return 0;
 }
 
+int create_udp_socket()
+{
+	// Create UDP socket
+	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+		LOG_INF("socket creation failed");
+		return -errno;
+	}
+
+	memset(&client_addr, 0, sizeof(client_addr));
+
+	// Configure client address
+	client_addr.sin_family = AF_INET;
+	client_addr.sin_addr.s_addr = INADDR_ANY;
+	client_addr.sin_port = htons(0);  // Bind to any available port
+
+	// Bind the socket to the client address
+	if (bind(sockfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+		LOG_INF("bind failed");
+		return -errno;
+	}
+
+	memset(&server_addr, 0, sizeof(server_addr));
+
+	// Configure server address
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_port = htons(SERVER_PORT);
+	if (inet_pton(AF_INET, SERVER_IP, &(server_addr.sin_addr)) <= 0) {
+		perror("inet_pton failed");
+		exit(EXIT_FAILURE);
+	}
+}
+
+//K_THREAD_DEFINE(udp_client_thread, 1024, udp_client, NULL, NULL, NULL, 7, 0, 0);
+//K_THREAD_DEFINE(udp_server_thread, 1024, udp_server, NULL, NULL, NULL, 7, 0, 0);
+
 int main(void)
 {
 	int i;
@@ -521,6 +551,8 @@ int main(void)
 		CONFIG_NET_CONFIG_MY_IPV4_NETMASK,
 		CONFIG_NET_CONFIG_MY_IPV4_GW);
 
+	k_sleep(K_MSEC(100));
+
 	while (1) {
 		wifi_connect();
 
@@ -531,13 +563,21 @@ int main(void)
 				break;
 			}
 		}
-			k_sleep(K_MSEC(5000));
+
+		k_sleep(K_MSEC(5000));
 		if (context.connected) {
-			setupTWT();
+		//	setupTWT();
 			k_sleep(K_MSEC(1000));
 			//udp_server();
+			stop_traffic = 0;
 			udp_client();
+			//k_thread_start(udp_server_thread);
+			LOG_INF("Creating Clinet and Server threads\n");
+
+			// Create udp client and start Thread 1
+
 			k_sleep(K_FOREVER);
+
 		} else if (!context.connect_result) {
 			LOG_ERR("Connection Timed Out");
 		}
