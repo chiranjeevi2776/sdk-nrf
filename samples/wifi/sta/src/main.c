@@ -84,14 +84,10 @@ char buffer[1024] = "hello\n";
 #define SERVER_IP "192.168.1.140"  // Replace with the IP address of the server
 #define SERVER_PORT 6788      // Replace with the port number used by the server
 volatile int stop_traffic = 1;
-unsigned int sleepCnt = 0, awakeCnt = 0;
+struct k_sem start_client_sem, start_server_sem;
 
-
-//K_THREAD_DEFINE(udp_client_thread, 1024, udp_client, NULL, NULL, NULL, 7, 0, 0);
-//K_THREAD_DEFINE(udp_server_thread, 1024, udp_server, NULL, NULL, NULL, 7, 0, 0);
-
-#if 0
-#define STACK_SIZE 1024
+#if 1
+#define STACK_SIZE 4096
 #define THREAD_PRIORITY 5
 
 // Define thread stacks
@@ -106,7 +102,6 @@ struct k_thread udp_server_thread;
 // Define thread entry functions
 int udp_server(void);
 int udp_client(void);
-int create_udp_socket();
 
 int setupTWT()
 {
@@ -125,7 +120,7 @@ int setupTWT()
 	params.setup.implicit = 1;
 	params.setup.announce = 1;
 	params.setup.twt_wake_interval = 65000;
-	params.setup.twt_interval = 524000;
+	params.setup.twt_interval = 1000000;
 
         if (net_mgmt(NET_REQUEST_WIFI_TWT, iface, &params, sizeof(params))) {
 		LOG_INF("TWT SETUP FAILED\n");
@@ -142,30 +137,49 @@ int setupTWT()
         return 0;
 }
 
-
 int udp_client()
 {
+	LOG_INF("Waiting for client sem\n");
+	k_sem_take(&start_client_sem, K_FOREVER);
 	LOG_INF("UDP Clinet Started\n");
-	create_udp_socket();
+     
+	// Create UDP socket
+	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+		LOG_INF("socket creation failed");
+		return -errno;
+	}
 
+	memset(&client_addr, 0, sizeof(client_addr));
+
+	// Configure client address
+	client_addr.sin_family = AF_INET;
+	client_addr.sin_addr.s_addr = INADDR_ANY;
+	client_addr.sin_port = htons(0);  // Bind to any available port
+
+	// Bind the socket to the client address
+	if (bind(sockfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+		LOG_INF("bind failed");
+		return -errno;
+	}
+
+	memset(&server_addr, 0, sizeof(server_addr));
+
+	// Configure server address
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_port = htons(SERVER_PORT);
+	if (inet_pton(AF_INET, SERVER_IP, &(server_addr.sin_addr)) <= 0) {
+		perror("inet_pton failed");
+		exit(EXIT_FAILURE);
+	}
+       
 	// Send data to the server
 	while(1)
 	{
 		if(stop_traffic == 0)
 		{
-			++awakeCnt;
-			if(awakeCnt%500 == 0)
-			{
-				LOG_INF("AWAKE CNT %d\n", awakeCnt);
-			}
 			sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&server_addr, addr_len);
 			k_sleep(K_USEC(100));
 		} else {
-			++sleepCnt;
-			if(sleepCnt%500 == 0)
-			{
-				LOG_INF("sleep CNT %d\n", sleepCnt);
-			}
 			k_sleep(K_MSEC(5));
 		}
 	}
@@ -176,15 +190,17 @@ int udp_client()
 	return 0;
 }
 
-#if 1
-
 int  udp_server(void) {
 
 	int sockid;
 	char buffer1[MAXLINE];
 	struct sockaddr_in servaddr, cliaddr;
+	int len, n;
 
-	LOG_INF("UDP SERVER STARTED\n");
+	LOG_INF("#######Waiting for server sem\n");
+	k_sem_take(&start_server_sem, K_FOREVER);
+	LOG_INF("#######UDP SERVER STARTED\n");
+
 	// Creating socket file descriptor
 	if ( (sockid = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
 		LOG_ERR("socket creation failed - %d", errno);
@@ -207,7 +223,6 @@ int  udp_server(void) {
 		return -errno;
 	}
 
-	int len, n;
 	len = sizeof(cliaddr); //len is value/result
 
 	LOG_INF("UDP SERVER STARTED\n");
@@ -216,12 +231,11 @@ int  udp_server(void) {
 				MSG_WAITALL, ( struct sockaddr *) &cliaddr,
 				&len);
 		buffer1[n] = '\0';
-		LOG_INF("Message client : %s\n", buffer1);
+		LOG_INF("Message from client : %s\n", buffer1);
 	}
 
 	return 0;
 }
-#endif
 
 void toggle_led(void)
 {
@@ -340,27 +354,27 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
 	case NET_EVENT_WIFI_DISCONNECT_RESULT:
 		handle_wifi_disconnect_result(cb);
 		break;
-#if 1
 	case NET_EVENT_WIFI_TWT_SLEEP_STATE:
 		{
 			int *a;
 			a = ( int *)(cb->info);
+			/* BLOCK Event Received */
 			if(*a == WIFI_TWT_STATE_SLEEP)
 			{
+	                        //LOG_INF("STOP DATA \n");
 				stop_traffic = 1;
-			//      LOG_INF("======TWT SLEEP======\n");	
 			}
+			/*UNBLOCK Event Received */
 			else if(*a == WIFI_TWT_STATE_AWAKE)
 			{
+	                        //LOG_INF("SEND DATA \n");
 				stop_traffic = 0;
-			//       LOG_INF("######TWT AWAKE######\n");	
 			}
 			else
 			       LOG_INF("UNKNOWN TWT STATE %d \n", *a);	
 
 		}
 		break;
-#endif
 	default:
 		break;
 	}
@@ -461,41 +475,6 @@ int bytes_from_str(const char *str, uint8_t *bytes, size_t bytes_len)
 	return 0;
 }
 
-int create_udp_socket()
-{
-	// Create UDP socket
-	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-		LOG_INF("socket creation failed");
-		return -errno;
-	}
-
-	memset(&client_addr, 0, sizeof(client_addr));
-
-	// Configure client address
-	client_addr.sin_family = AF_INET;
-	client_addr.sin_addr.s_addr = INADDR_ANY;
-	client_addr.sin_port = htons(0);  // Bind to any available port
-
-	// Bind the socket to the client address
-	if (bind(sockfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
-		LOG_INF("bind failed");
-		return -errno;
-	}
-
-	memset(&server_addr, 0, sizeof(server_addr));
-
-	// Configure server address
-	server_addr.sin_family = AF_INET;
-	server_addr.sin_port = htons(SERVER_PORT);
-	if (inet_pton(AF_INET, SERVER_IP, &(server_addr.sin_addr)) <= 0) {
-		perror("inet_pton failed");
-		exit(EXIT_FAILURE);
-	}
-}
-
-//K_THREAD_DEFINE(udp_client_thread, 1024, udp_client, NULL, NULL, NULL, 7, 0, 0);
-//K_THREAD_DEFINE(udp_server_thread, 1024, udp_server, NULL, NULL, NULL, 7, 0, 0);
-
 int main(void)
 {
 	int i;
@@ -551,6 +530,17 @@ int main(void)
 		CONFIG_NET_CONFIG_MY_IPV4_NETMASK,
 		CONFIG_NET_CONFIG_MY_IPV4_GW);
 
+	k_sem_init(&start_client_sem, 0, 1);
+	k_sem_init(&start_server_sem, 0, 1);
+#if 1
+	k_thread_create(&udp_client_thread, thread_stack1, STACK_SIZE,
+                    udp_client, NULL, NULL, NULL,
+                    THREAD_PRIORITY, 0, K_NO_WAIT);
+#endif
+	k_thread_create(&udp_server_thread, thread_stack2, STACK_SIZE,
+                    udp_server, NULL, NULL, NULL,
+                    THREAD_PRIORITY, 0, K_NO_WAIT);
+
 	k_sleep(K_MSEC(100));
 
 	while (1) {
@@ -566,18 +556,13 @@ int main(void)
 
 		k_sleep(K_MSEC(5000));
 		if (context.connected) {
-		//	setupTWT();
+			setupTWT();
 			k_sleep(K_MSEC(1000));
-			//udp_server();
-			stop_traffic = 0;
-			udp_client();
-			//k_thread_start(udp_server_thread);
-			LOG_INF("Creating Clinet and Server threads\n");
-
-			// Create udp client and start Thread 1
+			LOG_INF("Releasing client and server sem\n");
+			k_sem_give(&start_client_sem);
+			k_sem_give(&start_server_sem);
 
 			k_sleep(K_FOREVER);
-
 		} else if (!context.connect_result) {
 			LOG_ERR("Connection Timed Out");
 		}
