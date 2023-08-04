@@ -30,6 +30,7 @@ LOG_MODULE_REGISTER(sta, CONFIG_LOG_DEFAULT_LEVEL);
 #include "net_private.h"
 
 #include <zephyr/net/socket.h>
+#include "common.h"
 
 #define PORT	 1337
 #define MAXLINE 1024
@@ -37,9 +38,11 @@ LOG_MODULE_REGISTER(sta, CONFIG_LOG_DEFAULT_LEVEL);
 
 #define WIFI_SHELL_MODULE "wifi"
 
-//#define WIFI_SHELL_MGMT_EVENTS (NET_EVENT_WIFI_CONNECT_RESULT |		\
-//				NET_EVENT_WIFI_DISCONNECT_RESULT | \
-//				NET_EVENT_WIFI_TWT_SLEEP_STATE)
+#if 0
+#define WIFI_SHELL_MGMT_EVENTS (NET_EVENT_WIFI_CONNECT_RESULT |		\
+				NET_EVENT_WIFI_DISCONNECT_RESULT | \
+				NET_EVENT_WIFI_TWT_SLEEP_STATE)
+#endif
 
 #define WIFI_SHELL_MGMT_EVENTS (NET_EVENT_WIFI_CONNECT_RESULT |		\
 				NET_EVENT_WIFI_DISCONNECT_RESULT)
@@ -77,12 +80,15 @@ static struct {
 } context;
 
 unsigned int twt_setup = 0;
-int sockfd;
+int sockfd, ctrl_sock_fd = 0;
 struct sockaddr_in server_addr, client_addr;
 socklen_t addr_len = sizeof(server_addr);
 char buffer[1024] = "hello\n";
-#define SERVER_IP "192.168.1.140"  // Replace with the IP address of the server
-#define SERVER_PORT 6788      // Replace with the port number used by the server
+
+#define SERVER_IP "192.168.1.11"  // Replace with the IP address of the server
+#define SERVER_DATA_PORT 6788      // Replace with the port number used by the server
+#define SERVER_CTRL_PORT	6789		      
+
 volatile int stop_traffic = 1;
 struct k_sem start_client_sem, start_server_sem;
 
@@ -90,22 +96,25 @@ struct k_sem start_client_sem, start_server_sem;
 #define STACK_SIZE 4096
 #define THREAD_PRIORITY 5
 
-// Define thread stacks
+/* Define thread stacks */
 K_THREAD_STACK_DEFINE(thread_stack1, STACK_SIZE);
 K_THREAD_STACK_DEFINE(thread_stack2, STACK_SIZE);
 
-// Define thread structures
+/* Define thread structures */
 struct k_thread udp_client_thread;
 struct k_thread udp_server_thread;
 #endif
 
-// Define thread entry functions
+#define ENABLE_TWT 0
+#define BUFFER_SIZE 1024
+
+/* Define thread entry functions */
 int udp_server(void);
 int udp_client(void);
 
+#if ENABLE_TWT
 int setupTWT()
 {
-        //struct net_if *iface = net_if_get_first_wifi();
 	struct net_if *iface = net_if_get_default();
         struct wifi_twt_params params = { 0 };
 
@@ -136,6 +145,7 @@ int setupTWT()
 
         return 0;
 }
+#endif
 
 int udp_client()
 {
@@ -166,7 +176,7 @@ int udp_client()
 
 	// Configure server address
 	server_addr.sin_family = AF_INET;
-	server_addr.sin_port = htons(SERVER_PORT);
+	server_addr.sin_port = htons(SERVER_DATA_PORT);
 	if (inet_pton(AF_INET, SERVER_IP, &(server_addr.sin_addr)) <= 0) {
 		perror("inet_pton failed");
 		exit(EXIT_FAILURE);
@@ -185,12 +195,13 @@ int udp_client()
 	}
 
 	// Close the socket
-//	close(sockfd);
+	close(sockfd);
 
 	return 0;
 }
 
-int  udp_server(void) {
+int  udp_server(void) 
+{
 
 	int sockid;
 	char buffer1[MAXLINE];
@@ -234,7 +245,116 @@ int  udp_server(void) {
 		LOG_INF("Message from client : %s\n", buffer1);
 	}
 
+	// Close the socket
+	close(sockid);
 	return 0;
+}
+
+int tcp_client()
+{
+	LOG_INF("TCP CLINET NOT YET IMPLEMENTED\n");
+
+	return 0;
+}
+
+int tcp_server()
+{
+	LOG_INF("TCP SERVER NOT YET IMPLEMENTED\n");
+
+	return 0;
+}
+
+/* send/receive traffic based on test case num */
+int send_receive_data_frames(int num)
+{
+	if(test_case[num].client_role == UPLINK)
+	{
+		if(test_case[num].traffic_type == UDP)
+		{
+			LOG_INF("Sending UDP Data......\n");
+			k_sem_give(&start_client_sem);
+			udp_client();
+		} else if (test_case[num].traffic_type == TCP) {
+			LOG_INF("Sending TCP Data......\n");
+			tcp_client();
+		} else {
+			LOG_INF("Invalid Traffic: choose either TCP/UDP\n");
+		}
+	} else if(test_case[num].client_role == DOWNLINK) {
+		if(test_case[num].traffic_type == UDP)
+		{
+			LOG_INF("Receving UDP Data......\n");
+			udp_server();
+		} else if (test_case[num].traffic_type == TCP) {
+			LOG_INF("Receving TCP Data......\n");
+			tcp_server();
+		} else {
+			LOG_INF("Invalid Traffic: choose either TCP/UDP\n");
+		}
+	}
+
+	return 0;
+}
+
+int receive_report(int sock)
+{
+	memset(buffer, 0, BUFFER_SIZE);
+
+	/* Receive a response from the server */
+ 	recv(sock, buffer, BUFFER_SIZE, 0);
+	LOG_INF("Received Report from the SERVER!!!!\n");
+
+	return 0;
+}
+
+int send_control_frame(int sock, int num)
+{
+	send(sock, &test_case[num], sizeof(struct control), 0);
+	printf("Control frame sent to server\n");
+}
+
+void start_test(int num)
+{
+	/* send control frame to the server */
+	send_control_frame(ctrl_sock_fd, num);
+
+	/* Function to send/receive data frames based on the test case num */
+	send_receive_data_frames(num);
+
+	/* Function to receive the report from the server */
+	receive_report(ctrl_sock_fd);
+}
+
+/* handling control messages with server like start/stop/report */
+int init_tcp() 
+{
+	struct sockaddr_in serv_addr;
+
+	/* Create socket */
+	if ((ctrl_sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		LOG_INF("Socket creation failed");
+		return -errno;
+	}
+
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_port = htons(SERVER_CTRL_PORT);
+
+	/* Convert IPv4 and IPv6 addresses from text to binary form */
+	if (inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr) <= 0) {
+		LOG_INF("Invalid address/ Address not supported");
+		return -errno;
+	}
+
+	/* Connect to the server */
+	if (connect(ctrl_sock_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+		LOG_INF("Connection failed");
+		return -errno;
+	}
+
+	LOG_INF("Connected To Server!!! \n");
+	k_sleep(K_SECONDS(10));
+
+	return ctrl_sock_fd;
 }
 
 void toggle_led(void)
@@ -532,11 +652,9 @@ int main(void)
 
 	k_sem_init(&start_client_sem, 0, 1);
 	k_sem_init(&start_server_sem, 0, 1);
-#if 1
 	k_thread_create(&udp_client_thread, thread_stack1, STACK_SIZE,
                     udp_client, NULL, NULL, NULL,
                     THREAD_PRIORITY, 0, K_NO_WAIT);
-#endif
 	k_thread_create(&udp_server_thread, thread_stack2, STACK_SIZE,
                     udp_server, NULL, NULL, NULL,
                     THREAD_PRIORITY, 0, K_NO_WAIT);
@@ -556,7 +674,26 @@ int main(void)
 
 		k_sleep(K_MSEC(5000));
 		if (context.connected) {
+			int test_case_no, ret_val = 0;
+			ret_val = init_tcp();
+			if(ret_val < 0)
+			{
+				LOG_INF("Failed to Connect Server\n");
+				exit(0);
+			}
+
+			LOG_INF("PS MODE: DTIM \n");
+			/* run the test cases uplink/downlink/both */
+			for(test_case_no = 0; test_case_no < MAX_TEST_CASES; test_case_no++)
+			{
+				LOG_INF("TEST_CASE: %d\n", test_case_no);
+				start_test(test_case_no);
+				LOG_INF("TEST CASE: %d Completed\n");
+				k_sleep(K_SECONDS(10));
+			}
+#if ENABLE_TWT
 			setupTWT();
+#endif
 			k_sleep(K_MSEC(1000));
 			LOG_INF("Releasing client and server sem\n");
 			k_sem_give(&start_client_sem);
