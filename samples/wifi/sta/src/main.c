@@ -19,6 +19,7 @@ LOG_MODULE_REGISTER(sta, CONFIG_LOG_DEFAULT_LEVEL);
 #include <zephyr/shell/shell.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/init.h>
+#include <zephyr/types.h>
 
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/wifi_mgmt.h>
@@ -84,15 +85,15 @@ int sockfd, ctrl_sock_fd = 0;
 struct sockaddr_in server_addr, client_addr;
 socklen_t addr_len = sizeof(server_addr);
 char buffer[1024] = "hello\n";
+char report_buffer[1024];
 
 #define SERVER_IP "192.168.1.11"  // Replace with the IP address of the server
 #define SERVER_DATA_PORT 6788      // Replace with the port number used by the server
 #define SERVER_CTRL_PORT	6789		      
 
 volatile int stop_traffic = 1;
-struct k_sem start_client_sem, start_server_sem;
 
-#if 1
+#if ENABLE_KTHREADS 
 #define STACK_SIZE 4096
 #define THREAD_PRIORITY 5
 
@@ -103,6 +104,8 @@ K_THREAD_STACK_DEFINE(thread_stack2, STACK_SIZE);
 /* Define thread structures */
 struct k_thread udp_client_thread;
 struct k_thread udp_server_thread;
+
+struct k_sem start_client_sem, start_server_sem;
 #endif
 
 #define ENABLE_TWT 0
@@ -110,7 +113,7 @@ struct k_thread udp_server_thread;
 
 /* Define thread entry functions */
 int udp_server(void);
-int udp_client(void);
+int udp_client(num);
 
 #if ENABLE_TWT
 int setupTWT()
@@ -147,10 +150,15 @@ int setupTWT()
 }
 #endif
 
-int udp_client()
+int udp_client(int num)
 {
+	unsigned long long start_time_ms = k_uptime_get(); //returns time in ms from the boot
+	int total_duration = test_case[num].duration * 1000; //Converting into ms
+
+#if ENABLE_KTHREADS
 	LOG_INF("Waiting for client sem\n");
 	k_sem_take(&start_client_sem, K_FOREVER);
+#endif
 	LOG_INF("UDP Clinet Started\n");
      
 	// Create UDP socket
@@ -182,16 +190,18 @@ int udp_client()
 		exit(EXIT_FAILURE);
 	}
        
+	start_time_ms = k_uptime_get();
 	// Send data to the server
-	while(1)
+	while((k_uptime_get() - start_time_ms) < total_duration)
 	{
-		if(stop_traffic == 0)
-		{
-			sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&server_addr, addr_len);
-			k_sleep(K_USEC(100));
-		} else {
-			k_sleep(K_MSEC(5));
-		}
+		sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&server_addr, addr_len);
+		k_sleep(K_USEC(100));
+	}
+
+	/* Send Empty Msg to indicate End of TX */
+	{
+		char empty_data = '\0';
+		sendto(sockfd, &empty_data, 0, 0, (struct sockaddr *)&server_addr, addr_len);
 	}
 
 	// Close the socket
@@ -208,8 +218,10 @@ int  udp_server(void)
 	struct sockaddr_in servaddr, cliaddr;
 	int len, n;
 
+#if ENABLE_KTHREADS
 	LOG_INF("#######Waiting for server sem\n");
 	k_sem_take(&start_server_sem, K_FOREVER);
+#endif
 	LOG_INF("#######UDP SERVER STARTED\n");
 
 	// Creating socket file descriptor
@@ -272,8 +284,8 @@ int send_receive_data_frames(int num)
 		if(test_case[num].traffic_type == UDP)
 		{
 			LOG_INF("Sending UDP Data......\n");
-			k_sem_give(&start_client_sem);
-			udp_client();
+			udp_client(num);
+			LOG_INF("Completed UDP Data Tx\n");
 		} else if (test_case[num].traffic_type == TCP) {
 			LOG_INF("Sending TCP Data......\n");
 			tcp_client();
@@ -296,27 +308,50 @@ int send_receive_data_frames(int num)
 	return 0;
 }
 
+void print_report()
+{
+	struct server_report *report = (struct server_report *)report_buffer;
+
+	printf(" ###### REPORT ########\n\t");
+	printf("Num of Bytes Received %d\n\t",ntohl(report->bytes_received));
+	printf("Num of PKTS Received %d\n\t",ntohl(report->packets_received));
+	//printf("Elapsed Time %d\n\t",ntohl(report->elapsed_time));
+	//printf("Throuhput %d\n\t",ntohl(report->throughput));
+	//printf("Jitter %d\n\t",ntohl(report->average_jitter));
+}
+
 int receive_report(int sock)
 {
-	memset(buffer, 0, BUFFER_SIZE);
+	memset(report_buffer, 0, BUFFER_SIZE);
+
+	LOG_INF("Waiting fro Report from the Server\n");
 
 	/* Receive a response from the server */
- 	recv(sock, buffer, BUFFER_SIZE, 0);
-	LOG_INF("Received Report from the SERVER!!!!\n");
+ 	recv(sock, report_buffer, BUFFER_SIZE, 0);
 
+	print_report();
 	return 0;
 }
 
-int send_control_frame(int sock, int num)
+int send_cmd(int sock, int num)
 {
-	send(sock, &test_case[num], sizeof(struct control), 0);
+	struct cmd cf;
+
+	cf.client_role = htonl(test_case[num].client_role);
+	cf.traffic_type = htonl(test_case[num].traffic_type);
+	cf.traffic_mode = htonl(test_case[num].traffic_mode);
+	cf.duration = htonl(test_case[num].duration);
+	cf.frame_len = htonl(test_case[num].frame_len);
+	cf.reserved = 0;
+	send(sock, &cf, sizeof(struct cmd), 0);
 	printf("Control frame sent to server\n");
 }
 
 void start_test(int num)
 {
-	/* send control frame to the server */
-	send_control_frame(ctrl_sock_fd, num);
+	/* send cmd to the server */
+	LOG_INF("Sending CMD to the Client\n");
+	send_cmd(ctrl_sock_fd, num);
 
 	/* Function to send/receive data frames based on the test case num */
 	send_receive_data_frames(num);
@@ -650,6 +685,7 @@ int main(void)
 		CONFIG_NET_CONFIG_MY_IPV4_NETMASK,
 		CONFIG_NET_CONFIG_MY_IPV4_GW);
 
+#if ENABLE_KTHREADS
 	k_sem_init(&start_client_sem, 0, 1);
 	k_sem_init(&start_server_sem, 0, 1);
 	k_thread_create(&udp_client_thread, thread_stack1, STACK_SIZE,
@@ -658,6 +694,7 @@ int main(void)
 	k_thread_create(&udp_server_thread, thread_stack2, STACK_SIZE,
                     udp_server, NULL, NULL, NULL,
                     THREAD_PRIORITY, 0, K_NO_WAIT);
+#endif
 
 	k_sleep(K_MSEC(100));
 
@@ -682,13 +719,13 @@ int main(void)
 				exit(0);
 			}
 
-			LOG_INF("PS MODE: DTIM \n");
+			LOG_INF("\n#### PS MODE: DTIM ### \n");
 			/* run the test cases uplink/downlink/both */
-			for(test_case_no = 0; test_case_no < MAX_TEST_CASES; test_case_no++)
+			for(test_case_no = 0; test_case_no<CURR_TEST_CASE_CNT+2; test_case_no++)
 			{
 				LOG_INF("TEST_CASE: %d\n", test_case_no);
 				start_test(test_case_no);
-				LOG_INF("TEST CASE: %d Completed\n");
+				LOG_INF("TEST CASE: %d Completed\n", test_case_no);
 				k_sleep(K_SECONDS(10));
 			}
 #if ENABLE_TWT
@@ -696,9 +733,12 @@ int main(void)
 #endif
 			k_sleep(K_MSEC(1000));
 			LOG_INF("Releasing client and server sem\n");
+#if ENABLE_KTHREADS
 			k_sem_give(&start_client_sem);
 			k_sem_give(&start_server_sem);
+#endif
 
+			LOG_INF("END of APP\n");
 			k_sleep(K_FOREVER);
 		} else if (!context.connect_result) {
 			LOG_ERR("Connection Timed Out");
