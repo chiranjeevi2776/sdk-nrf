@@ -112,8 +112,8 @@ struct k_sem start_client_sem, start_server_sem;
 #define BUFFER_SIZE 1024
 
 /* Define thread entry functions */
-int udp_server(void);
-int udp_client(num);
+int udp_server(int num);
+int udp_client(int num);
 
 #if ENABLE_TWT
 int setupTWT()
@@ -210,7 +210,7 @@ int udp_client(int num)
 	return 0;
 }
 
-int  udp_server(void) 
+int udp_server(int num)
 {
 
 	int sockid;
@@ -262,14 +262,61 @@ int  udp_server(void)
 	return 0;
 }
 
-int tcp_client()
+int tcp_client(int num)
 {
-	LOG_INF("TCP CLINET NOT YET IMPLEMENTED\n");
+	int sockfd;
+	struct sockaddr_in server_addr;
+	unsigned long long start_time_ms = k_uptime_get(); //returns time in ms from the boot
+	int total_duration = test_case[num].duration * 1000; //Converting into ms
 
+	LOG_INF("TCP Client started\n");
+
+	// Create socket
+	sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (sockfd < 0) {
+		printf("Failed to create socket\n");
+		return -errno;
+	}
+
+	// Set server address
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_port = htons(SERVER_DATA_PORT);
+	if (inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr) <= 0) {
+		printf("Invalid address format\n");
+		close(sockfd);
+		return -errno;
+	}
+
+	// Connect to the server
+	if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+		printk("Connection failed\n");
+		close(sockfd);
+		return -errno;
+	}
+
+	memset(buffer, 'A', BUFFER_SIZE);
+	start_time_ms = k_uptime_get();
+	while((k_uptime_get() - start_time_ms) < total_duration)
+	{
+		send(sockfd, buffer, test_case[num].frame_len, 0);
+		//send(sockfd, buffer, 64, 0);
+		k_sleep(K_MSEC(100));
+	}
+
+	/* Send empty msg to the server to indicate end of TX */
+	{
+		char empty_data = '\0';
+		send(sockfd, &empty_data, 0, 0);
+	}
+
+	// Close the socket
+	close(sockfd);
+
+	LOG_INF("TCP Client finished\n");
 	return 0;
 }
 
-int tcp_server()
+int tcp_server(int num)
 {
 	LOG_INF("TCP SERVER NOT YET IMPLEMENTED\n");
 
@@ -288,7 +335,7 @@ int send_receive_data_frames(int num)
 			LOG_INF("Completed UDP Data Tx\n");
 		} else if (test_case[num].traffic_type == TCP) {
 			LOG_INF("Sending TCP Data......\n");
-			tcp_client();
+			tcp_client(num);
 		} else {
 			LOG_INF("Invalid Traffic: choose either TCP/UDP\n");
 		}
@@ -296,16 +343,24 @@ int send_receive_data_frames(int num)
 		if(test_case[num].traffic_type == UDP)
 		{
 			LOG_INF("Receving UDP Data......\n");
-			udp_server();
+			udp_server(num);
 		} else if (test_case[num].traffic_type == TCP) {
 			LOG_INF("Receving TCP Data......\n");
-			tcp_server();
+			tcp_server(num);
 		} else {
 			LOG_INF("Invalid Traffic: choose either TCP/UDP\n");
 		}
 	}
 
 	return 0;
+}
+
+// Function to convert network-order uint64_t to double
+double network_order_to_double(uint64_t value) {
+    double result;
+    uint64_t beValue = ntohll(value);
+    memcpy(&result, &beValue, sizeof(double));
+    return result;
 }
 
 void print_report()
@@ -315,16 +370,16 @@ void print_report()
 	printf(" ###### REPORT ########\n\t");
 	printf("Num of Bytes Received %d\n\t",ntohl(report->bytes_received));
 	printf("Num of PKTS Received %d\n\t",ntohl(report->packets_received));
-	//printf("Elapsed Time %d\n\t",ntohl(report->elapsed_time));
-	//printf("Throuhput %d\n\t",ntohl(report->throughput));
-	//printf("Jitter %d\n\t",ntohl(report->average_jitter));
+	printf("Elapsed Time %.2f Seconds\n\t",network_order_to_double(report->elapsed_time));
+	printf("Throuhput %.2f Mbps\n\t",network_order_to_double(report->throughput));
+	printf("Average Jitter %.2f ms\n\t",network_order_to_double(report->average_jitter));
 }
 
-int receive_report(int sock)
+int wait_for_report(int sock)
 {
 	memset(report_buffer, 0, BUFFER_SIZE);
 
-	LOG_INF("Waiting fro Report from the Server\n");
+	LOG_INF("Waiting for report from the Server\n");
 
 	/* Receive a response from the server */
  	recv(sock, report_buffer, BUFFER_SIZE, 0);
@@ -345,6 +400,8 @@ int send_cmd(int sock, int num)
 	cf.reserved = 0;
 	send(sock, &cf, sizeof(struct cmd), 0);
 	printf("Control frame sent to server\n");
+
+	return 0;
 }
 
 void start_test(int num)
@@ -353,11 +410,13 @@ void start_test(int num)
 	LOG_INF("Sending CMD to the Client\n");
 	send_cmd(ctrl_sock_fd, num);
 
+	k_sleep(K_SECONDS(5));
+
 	/* Function to send/receive data frames based on the test case num */
 	send_receive_data_frames(num);
 
 	/* Function to receive the report from the server */
-	receive_report(ctrl_sock_fd);
+	wait_for_report(ctrl_sock_fd);
 }
 
 /* handling control messages with server like start/stop/report */
@@ -721,7 +780,7 @@ int main(void)
 
 			LOG_INF("\n#### PS MODE: DTIM ### \n");
 			/* run the test cases uplink/downlink/both */
-			for(test_case_no = 0; test_case_no<CURR_TEST_CASE_CNT+2; test_case_no++)
+			for(test_case_no = 0; test_case_no<CURR_TEST_CASE_CNT; test_case_no++)
 			{
 				LOG_INF("TEST_CASE: %d\n", test_case_no);
 				start_test(test_case_no);
