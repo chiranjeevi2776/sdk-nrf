@@ -220,6 +220,14 @@ uint64_t double_to_uint64(double value) {
     return (result);
 }
 
+double uint64_to_double(uint64_t value)
+{
+	double result;
+
+	memcpy(&result, &value, sizeof(double));
+	return result;
+}
+
 int udp_server(int num)
 {
 	char buffer1[MAXLINE];
@@ -227,7 +235,7 @@ int udp_server(int num)
 	int prev_packet_time_ms = 0, current_packet_time_ms, jitter;
 	 int jitter_sum_ms = 0;
 	uint32_t current_time, start_time;
-	double elapsed_time = 0.0, throughput_mbps;
+	double elapsed_time = 0.0, throughput_mbps = 0;
 	struct sockaddr_in servaddr, cliaddr;
 
 #if ENABLE_KTHREADS
@@ -329,7 +337,7 @@ int tcp_client(int num)
 
 	// Connect to the server
 	if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-		printk("Connection failed\n");
+		printf("Connection failed\n");
 		close(sockfd);
 		return -errno;
 	}
@@ -357,8 +365,87 @@ int tcp_client(int num)
 
 int tcp_server(int num)
 {
-	LOG_INF("TCP SERVER NOT YET IMPLEMENTED\n");
+	int sockfd, new_sock, bytes;
+	struct sockaddr_in server_addr, client_addr;
+	socklen_t client_addr_len = sizeof(client_addr);
+	int prev_packet_time_ms = 0, current_packet_time_ms, jitter;
+	int jitter_sum_ms = 0;
+	uint32_t current_time, start_time;
+	double elapsed_time = 0.0, throughput_mbps = 0;
 
+	sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (sockfd < 0) {
+		printf("Failed to create socket\n");
+		return -errno;
+	}
+
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_port = htons(SERVER_DATA_PORT);
+	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+		printf("Bind failed\n");
+		close(sockfd);
+		return -errno;
+	}
+
+	if (listen(sockfd, 3) < 0) {
+		printf("Listen failed\n");
+		close(sockfd);
+		return -errno;
+	}
+
+	printf("TCP server is listening on port %d\n", SERVER_DATA_PORT);
+
+	new_sock = accept(sockfd, (struct sockaddr *)&client_addr, &client_addr_len);
+	if (new_sock < 0) {
+		printf("Accept failed\n");
+		close(sockfd);
+		return -errno;
+	}
+
+	memset(&local_report, 0 , sizeof(struct server_report));
+
+        start_time = k_uptime_get_32();
+	while(1)
+       	{
+		bytes = recv(new_sock, buffer, BUFFER_SIZE, 0);
+		if(bytes <= 0)
+		{
+			LOG_INF("END OF TCP RX\n");
+			break;
+		}
+
+		local_report.bytes_received += bytes;
+		local_report.packets_received++;
+
+		// Calculate throughput
+		current_time = k_uptime_get_32();
+		elapsed_time = (double)(current_time - start_time) / 1000.0; // Convert to seconds
+		//throughput_mbps = (double)(local_report.bytes_received * 8) / (elapsed_time * 1000000);
+
+		// Calculate jitter
+		current_packet_time_ms = current_time;
+		jitter = current_packet_time_ms - prev_packet_time_ms;
+		jitter_sum_ms += jitter;
+		prev_packet_time_ms = current_packet_time_ms;
+	}
+
+	if (local_report.packets_received > 1) {
+		throughput_mbps = (double)(local_report.bytes_received * 8) / (elapsed_time * 1000000);
+		double average_jitter_ms = (double)jitter_sum_ms / (local_report.packets_received - 1);
+		local_report.average_jitter = double_to_uint64(average_jitter_ms);
+		local_report.elapsed_time = double_to_uint64(elapsed_time);
+		local_report.throughput = double_to_uint64(throughput_mbps);
+#if 1
+		printf("Elapsed Time %0.2f Seconds\n\t",elapsed_time);
+		printf("Throuhput %0.2f Mbps\n\t",throughput_mbps);
+		printf("Average Jitter %0.2f ms\n\t",average_jitter_ms);
+#endif
+	} else
+		local_report.average_jitter = 0;
+
+	close(new_sock);
 	return 0;
 }
 
@@ -406,25 +493,31 @@ double network_order_to_double(uint64_t value)
 	return result;
 }
 
+
 void print_report(int client_role)
 {
 	struct server_report *report = (struct server_report *)report_buffer;
 
-	LOG_INF(" ###### REPORT ########\n\t");
 
 	if(client_role == UPLINK)
 	{
-		LOG_INF("Num of Bytes Received %d\n\t",ntohl(report->bytes_received));
+	LOG_INF(" ###### REPORT ########\n\t");
+		LOG_INF("UPLINK Num of Bytes Received %d\n\t",ntohl(report->bytes_received));
 		LOG_INF("Num of PKTS Received %d\n\t",ntohl(report->packets_received));
 		LOG_INF("Elapsed Time %.2f Seconds\n\t",network_order_to_double(report->elapsed_time));
 		LOG_INF("Throuhput %.2f Mbps\n\t",network_order_to_double(report->throughput));
 		LOG_INF("Average Jitter %.2f ms\n\t",network_order_to_double(report->average_jitter));
 	} else {
-		LOG_INF("Num of Bytes Received %d\n\t",(report->bytes_received));
+		LOG_INF("DOWNLINK Num of Bytes Received %d\n\t",(report->bytes_received));
 		LOG_INF("Num of PKTS Received %d\n\t",(report->packets_received));
-		LOG_INF("Elapsed Time %.2f Seconds\n\t",(report->elapsed_time));
-		LOG_INF("Throuhput %.2f Mbps\n\t",(report->throughput));
-		LOG_INF("Average Jitter %.2f ms\n\t",(report->average_jitter));
+#if 1
+		printf("1Elapsed Time %.2f Seconds\n\t",uint64_to_double(report->elapsed_time));
+		printf("2Throuhput %.2f Mbps\n\t",uint64_to_double(report->throughput));
+		printf("3Average Jitter %.2f ms\n\t",uint64_to_double(report->average_jitter));
+		printf("4Elapsed Time %.2f Seconds\n\t",uint64_to_double(local_report.elapsed_time));
+		printf("5Throuhput %.2f Mbps\n\t",uint64_to_double(local_report.throughput));
+		printf("6Average Jitter %.2f ms\n\t",uint64_to_double(local_report.average_jitter));
+#endif
 	}
 }
 
