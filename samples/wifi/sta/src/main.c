@@ -86,12 +86,15 @@ struct sockaddr_in server_addr, client_addr;
 socklen_t addr_len = sizeof(server_addr);
 char buffer[1024] = "hello\n";
 char report_buffer[1024];
+struct server_report local_report;
 
-#define SERVER_IP "192.168.1.11"  // Replace with the IP address of the server
+#define SERVER_IP "192.168.1.140"  // Replace with the IP address of the server
 #define SERVER_DATA_PORT 6788      // Replace with the port number used by the server
 #define SERVER_CTRL_PORT	6789		      
+#define ENABLE_KTHREADS 0
 
 volatile int stop_traffic = 1;
+
 
 #if ENABLE_KTHREADS 
 #define STACK_SIZE 4096
@@ -210,13 +213,22 @@ int udp_client(int num)
 	return 0;
 }
 
+// Function to convert network-order uint64_t to double
+uint64_t double_to_uint64(double value) {
+    uint64_t result;
+    memcpy(&result, &value, sizeof(uint64_t));
+    return (result);
+}
+
 int udp_server(int num)
 {
-
-	int sockid;
 	char buffer1[MAXLINE];
+	int sockid, len, bytes;
+	int prev_packet_time_ms = 0, current_packet_time_ms, jitter;
+	 int jitter_sum_ms = 0;
+	uint32_t current_time, start_time;
+	double elapsed_time = 0.0, throughput_mbps;
 	struct sockaddr_in servaddr, cliaddr;
-	int len, n;
 
 #if ENABLE_KTHREADS
 	LOG_INF("#######Waiting for server sem\n");
@@ -236,7 +248,7 @@ int udp_server(int num)
 	// Filling server information
 	servaddr.sin_family = AF_INET; // IPv4
 	servaddr.sin_addr.s_addr = INADDR_ANY;
-	servaddr.sin_port = htons(PORT);
+	servaddr.sin_port = htons(SERVER_DATA_PORT);
 
 	// Bind the socket with the server address
 	if ( bind(sockid, (const struct sockaddr *)&servaddr,
@@ -248,14 +260,42 @@ int udp_server(int num)
 
 	len = sizeof(cliaddr); //len is value/result
 
-	LOG_INF("UDP SERVER STARTED\n");
-	while(true) {
-		n = recvfrom(sockid, (char *)buffer1, MAXLINE,
+	memset(&local_report, 0 , sizeof(struct server_report));
+
+        start_time = k_uptime_get_32();
+	while(1) {
+		bytes = recvfrom(sockid, (char *)buffer1, MAXLINE,
 				MSG_WAITALL, ( struct sockaddr *) &cliaddr,
 				&len);
-		buffer1[n] = '\0';
-		LOG_INF("Message from client : %s\n", buffer1);
+		if(bytes <= 0)
+		{
+			LOG_INF("END OF UDP RX\n");
+			break;
+		}
+		//LOG_INF("Bytes %d\n", bytes);
+
+		local_report.bytes_received += bytes;
+		local_report.packets_received++;
+
+		// Calculate throughput
+		current_time = k_uptime_get_32();
+		elapsed_time = (double)(current_time - start_time) / 1000.0; // Convert to seconds
+		throughput_mbps = (double)(local_report.bytes_received * 8) / (elapsed_time * 1000000);
+
+		// Calculate jitter
+		current_packet_time_ms = current_time;
+		jitter = current_packet_time_ms - prev_packet_time_ms;
+		jitter_sum_ms += jitter;
+		prev_packet_time_ms = current_packet_time_ms;
 	}
+
+	if (local_report.packets_received > 1) {
+		double average_jitter_ms = (double)jitter_sum_ms / (local_report.packets_received - 1);
+		local_report.average_jitter = average_jitter_ms;
+		local_report.elapsed_time = double_to_uint64(elapsed_time);
+		local_report.throughput = double_to_uint64(throughput_mbps);
+	} else
+		local_report.average_jitter = 0;
 
 	// Close the socket
 	close(sockid);
@@ -299,8 +339,7 @@ int tcp_client(int num)
 	while((k_uptime_get() - start_time_ms) < total_duration)
 	{
 		send(sockfd, buffer, test_case[num].frame_len, 0);
-		//send(sockfd, buffer, 64, 0);
-		k_sleep(K_MSEC(100));
+		k_sleep(K_MSEC(50));
 	}
 
 	/* Send empty msg to the server to indicate end of TX */
@@ -342,11 +381,13 @@ int send_receive_data_frames(int num)
 	} else if(test_case[num].client_role == DOWNLINK) {
 		if(test_case[num].traffic_type == UDP)
 		{
-			LOG_INF("Receving UDP Data......\n");
+			LOG_INF("UDP SERVER STARTED\n");
 			udp_server(num);
+			LOG_INF("FInished UDP SERVER \n");
 		} else if (test_case[num].traffic_type == TCP) {
-			LOG_INF("Receving TCP Data......\n");
+			LOG_INF("TCP SERVER STARTED\n");
 			tcp_server(num);
+			LOG_INF("EXIT FROM TCP SERVER\n");
 		} else {
 			LOG_INF("Invalid Traffic: choose either TCP/UDP\n");
 		}
@@ -356,35 +397,50 @@ int send_receive_data_frames(int num)
 }
 
 // Function to convert network-order uint64_t to double
-double network_order_to_double(uint64_t value) {
-    double result;
-    uint64_t beValue = ntohll(value);
-    memcpy(&result, &beValue, sizeof(double));
-    return result;
+double network_order_to_double(uint64_t value)
+{
+	double result;
+	uint64_t beValue = ntohll(value);
+
+	memcpy(&result, &beValue, sizeof(double));
+	return result;
 }
 
-void print_report()
+void print_report(int client_role)
 {
 	struct server_report *report = (struct server_report *)report_buffer;
 
-	printf(" ###### REPORT ########\n\t");
-	printf("Num of Bytes Received %d\n\t",ntohl(report->bytes_received));
-	printf("Num of PKTS Received %d\n\t",ntohl(report->packets_received));
-	printf("Elapsed Time %.2f Seconds\n\t",network_order_to_double(report->elapsed_time));
-	printf("Throuhput %.2f Mbps\n\t",network_order_to_double(report->throughput));
-	printf("Average Jitter %.2f ms\n\t",network_order_to_double(report->average_jitter));
+	LOG_INF(" ###### REPORT ########\n\t");
+
+	if(client_role == UPLINK)
+	{
+		LOG_INF("Num of Bytes Received %d\n\t",ntohl(report->bytes_received));
+		LOG_INF("Num of PKTS Received %d\n\t",ntohl(report->packets_received));
+		LOG_INF("Elapsed Time %.2f Seconds\n\t",network_order_to_double(report->elapsed_time));
+		LOG_INF("Throuhput %.2f Mbps\n\t",network_order_to_double(report->throughput));
+		LOG_INF("Average Jitter %.2f ms\n\t",network_order_to_double(report->average_jitter));
+	} else {
+		LOG_INF("Num of Bytes Received %d\n\t",(report->bytes_received));
+		LOG_INF("Num of PKTS Received %d\n\t",(report->packets_received));
+		LOG_INF("Elapsed Time %.2f Seconds\n\t",(report->elapsed_time));
+		LOG_INF("Throuhput %.2f Mbps\n\t",(report->throughput));
+		LOG_INF("Average Jitter %.2f ms\n\t",(report->average_jitter));
+	}
 }
 
-int wait_for_report(int sock)
+int wait_for_report(int sock, int client_role)
 {
 	memset(report_buffer, 0, BUFFER_SIZE);
 
 	LOG_INF("Waiting for report from the Server\n");
 
 	/* Receive a response from the server */
- 	recv(sock, report_buffer, BUFFER_SIZE, 0);
+	if(client_role == UPLINK)
+		recv(sock, report_buffer, BUFFER_SIZE, 0);
+	else
+		memcpy(report_buffer, (uint8_t *)&local_report, sizeof(struct server_report));
 
-	print_report();
+	print_report(client_role);
 	return 0;
 }
 
@@ -410,13 +466,13 @@ void start_test(int num)
 	LOG_INF("Sending CMD to the Client\n");
 	send_cmd(ctrl_sock_fd, num);
 
-	k_sleep(K_SECONDS(5));
+	k_sleep(K_SECONDS(1));
 
 	/* Function to send/receive data frames based on the test case num */
 	send_receive_data_frames(num);
 
 	/* Function to receive the report from the server */
-	wait_for_report(ctrl_sock_fd);
+	wait_for_report(ctrl_sock_fd, test_case[num].client_role);
 }
 
 /* handling control messages with server like start/stop/report */
@@ -424,21 +480,25 @@ int init_tcp()
 {
 	struct sockaddr_in serv_addr;
 
+	LOG_INF("Connected To Server!!! \n");
 	/* Create socket */
 	if ((ctrl_sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		LOG_INF("Socket creation failed");
 		return -errno;
 	}
 
+	LOG_INF("Connected To Server!!! \n");
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_port = htons(SERVER_CTRL_PORT);
 
+	LOG_INF("Connected To Server!!! \n");
 	/* Convert IPv4 and IPv6 addresses from text to binary form */
 	if (inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr) <= 0) {
 		LOG_INF("Invalid address/ Address not supported");
 		return -errno;
 	}
 
+	LOG_INF("Connected To Server!!! \n");
 	/* Connect to the server */
 	if (connect(ctrl_sock_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
 		LOG_INF("Connection failed");
