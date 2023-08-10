@@ -53,6 +53,7 @@ LOG_MODULE_REGISTER(sta, CONFIG_LOG_DEFAULT_LEVEL);
 #define CONNECTION_TIMEOUT  100
 #define STATUS_POLLING_MS   300
 
+#define REPORT_TIMEOUT      20 /* seconds */
 /* 1000 msec = 1 sec */
 #define LED_SLEEP_TIME_MS   100
 
@@ -157,6 +158,7 @@ int udp_client(int num)
 {
 	unsigned long long start_time_ms = k_uptime_get(); //returns time in ms from the boot
 	int total_duration = test_case[num].duration * 1000; //Converting into ms
+	uint64_t end_time_ms;
 
 #if ENABLE_KTHREADS
 	LOG_INF("Waiting for client sem\n");
@@ -193,13 +195,16 @@ int udp_client(int num)
 		exit(EXIT_FAILURE);
 	}
        
+	memset(buffer, 'A', BUFFER_SIZE);
 	start_time_ms = k_uptime_get();
 	// Send data to the server
 	while((k_uptime_get() - start_time_ms) < total_duration)
 	{
-		sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&server_addr, addr_len);
+		sendto(sockfd, buffer, test_case[num].frame_len, 0, (struct sockaddr *)&server_addr, addr_len);
 		k_sleep(K_USEC(100));
 	}
+	end_time_ms = k_uptime_get();
+	LOG_INF("UDP DATA TIME %d actual duration %d\n", (int)(end_time_ms - start_time_ms), test_case[num].duration);
 
 	/* Send Empty Msg to indicate End of TX */
 	{
@@ -210,6 +215,7 @@ int udp_client(int num)
 	// Close the socket
 	close(sockfd);
 
+	LOG_INF("UDP Client End\n");
 	return 0;
 }
 
@@ -242,7 +248,7 @@ int udp_server(int num)
 	LOG_INF("#######Waiting for server sem\n");
 	k_sem_take(&start_server_sem, K_FOREVER);
 #endif
-	LOG_INF("#######UDP SERVER STARTED\n");
+	LOG_INF("UDP SERVER STARTED\n");
 
 	// Creating socket file descriptor
 	if ( (sockid = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
@@ -299,7 +305,7 @@ int udp_server(int num)
 
 	if (local_report.packets_received > 1) {
 		double average_jitter_ms = (double)jitter_sum_ms / (local_report.packets_received - 1);
-		local_report.average_jitter = average_jitter_ms;
+		local_report.average_jitter = double_to_uint64(average_jitter_ms);
 		local_report.elapsed_time = double_to_uint64(elapsed_time);
 		local_report.throughput = double_to_uint64(throughput_mbps);
 	} else
@@ -317,7 +323,7 @@ int tcp_client(int num)
 	unsigned long long start_time_ms = k_uptime_get(); //returns time in ms from the boot
 	int total_duration = test_case[num].duration * 1000; //Converting into ms
 
-	LOG_INF("TCP Client started\n");
+	LOG_INF("TCP Client Started\n");
 
 	// Create socket
 	sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -359,7 +365,7 @@ int tcp_client(int num)
 	// Close the socket
 	close(sockfd);
 
-	LOG_INF("TCP Client finished\n");
+	LOG_INF("TCP Client End of Data\n");
 	return 0;
 }
 
@@ -454,17 +460,13 @@ int send_receive_data_frames(int num)
 {
 	if(test_case[num].client_role == UPLINK)
 	{
+		k_sleep(K_SECONDS(10));
 		if(test_case[num].traffic_type == UDP)
-		{
-			LOG_INF("Sending UDP Data......\n");
 			udp_client(num);
-			LOG_INF("Completed UDP Data Tx\n");
-		} else if (test_case[num].traffic_type == TCP) {
-			LOG_INF("Sending TCP Data......\n");
+		else if (test_case[num].traffic_type == TCP)
 			tcp_client(num);
-		} else {
+		else
 			LOG_INF("Invalid Traffic: choose either TCP/UDP\n");
-		}
 	} else if(test_case[num].client_role == DOWNLINK) {
 		if(test_case[num].traffic_type == UDP)
 		{
@@ -501,37 +503,57 @@ void print_report(int client_role)
 
 	if(client_role == UPLINK)
 	{
-	LOG_INF(" ###### REPORT ########\n\t");
-		LOG_INF("UPLINK Num of Bytes Received %d\n\t",ntohl(report->bytes_received));
-		LOG_INF("Num of PKTS Received %d\n\t",ntohl(report->packets_received));
-		LOG_INF("Elapsed Time %.2f Seconds\n\t",network_order_to_double(report->elapsed_time));
-		LOG_INF("Throuhput %.2f Mbps\n\t",network_order_to_double(report->throughput));
-		LOG_INF("Average Jitter %.2f ms\n\t",network_order_to_double(report->average_jitter));
+		LOG_INF(" ###### UPLINK REPORT ########\n\t");
+		k_sleep(K_SECONDS(5));
+	        /* Make sure LOG_INF will not print floating values */
+		printf("UPLINK Num of Bytes Received %d\n\t",ntohl(report->bytes_received));
+		printf("Num of PKTS Received %d\n\t",ntohl(report->packets_received));
+		printf("Elapsed Time %f Seconds\n\t",network_order_to_double(report->elapsed_time));
+		printf("Throuhput %f Mbps\n\t",network_order_to_double(report->throughput));
+		printf("Average Jitter %f ms\n\t",network_order_to_double(report->average_jitter));
 	} else {
-		LOG_INF("DOWNLINK Num of Bytes Received %d\n\t",(report->bytes_received));
-		LOG_INF("Num of PKTS Received %d\n\t",(report->packets_received));
-#if 1
+		LOG_INF(" ###### DOWNLINK REPORT ########\n\t");
+		k_sleep(K_SECONDS(5));
+		printf("DOWNLINK Num of Bytes Received %d\n\t",(report->bytes_received));
+		printf("Num of PKTS Received %d\n\t",(report->packets_received));
 		printf("1Elapsed Time %.2f Seconds\n\t",uint64_to_double(report->elapsed_time));
 		printf("2Throuhput %.2f Mbps\n\t",uint64_to_double(report->throughput));
 		printf("3Average Jitter %.2f ms\n\t",uint64_to_double(report->average_jitter));
-		printf("4Elapsed Time %.2f Seconds\n\t",uint64_to_double(local_report.elapsed_time));
-		printf("5Throuhput %.2f Mbps\n\t",uint64_to_double(local_report.throughput));
-		printf("6Average Jitter %.2f ms\n\t",uint64_to_double(local_report.average_jitter));
-#endif
 	}
 }
 
 int wait_for_report(int sock, int client_role)
 {
+	int ret = 0, bytes_received = 0;
+	struct timeval timeout;
+
 	memset(report_buffer, 0, BUFFER_SIZE);
 
 	LOG_INF("Waiting for report from the Server\n");
 
-	/* Receive a response from the server */
+	/* Wait for a response upto the REPORT_TIMEOUT from the server */
+	timeout.tv_sec = REPORT_TIMEOUT;
+	timeout.tv_usec = 0;
+	ret = setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+	if (ret < 0) {
+		printk("Failed to set socket option\n");
+	}
+
 	if(client_role == UPLINK)
-		recv(sock, report_buffer, BUFFER_SIZE, 0);
+		bytes_received = recv(sock, report_buffer, BUFFER_SIZE, 0);
 	else
 		memcpy(report_buffer, (uint8_t *)&local_report, sizeof(struct server_report));
+
+
+	if (bytes_received > 0) {
+		LOG_INF("Received data: %s\n", buffer);
+	} else if (bytes_received == 0) {
+		LOG_INF("Connection closed by peer\n");
+	} else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+		LOG_INF("Timeout: No data received within %d seconds\n", REPORT_TIMEOUT);
+	} else {
+		LOG_INF("Receive failed: %d\n", errno);
+	}	
 
 	print_report(client_role);
 	return 0;
@@ -559,8 +581,6 @@ void start_test(int num)
 	LOG_INF("Sending CMD to the Client\n");
 	send_cmd(ctrl_sock_fd, num);
 
-	k_sleep(K_SECONDS(1));
-
 	/* Function to send/receive data frames based on the test case num */
 	send_receive_data_frames(num);
 
@@ -573,25 +593,21 @@ int init_tcp()
 {
 	struct sockaddr_in serv_addr;
 
-	LOG_INF("Connected To Server!!! \n");
 	/* Create socket */
 	if ((ctrl_sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		LOG_INF("Socket creation failed");
 		return -errno;
 	}
 
-	LOG_INF("Connected To Server!!! \n");
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_port = htons(SERVER_CTRL_PORT);
 
-	LOG_INF("Connected To Server!!! \n");
 	/* Convert IPv4 and IPv6 addresses from text to binary form */
 	if (inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr) <= 0) {
 		LOG_INF("Invalid address/ Address not supported");
 		return -errno;
 	}
 
-	LOG_INF("Connected To Server!!! \n");
 	/* Connect to the server */
 	if (connect(ctrl_sock_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
 		LOG_INF("Connection failed");

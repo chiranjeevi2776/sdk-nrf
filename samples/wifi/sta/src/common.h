@@ -2,7 +2,7 @@
 #define COMMON_H
 
 #define MAX_TEST_CASES  20
-#define CURR_TEST_CASE_CNT 1
+#define CURR_TEST_CASE_CNT 2
 
 /* client role */
 #define UPLINK 1
@@ -38,10 +38,10 @@ struct server_report {
 // Array of predefined test cases
 struct cmd test_case[MAX_TEST_CASES] = {
 	// 5 TX cases with different packet lengths
-	{DOWNLINK, TCP, CONTINUOUS,  20, 512, 0},
-	{DOWNLINK, TCP, CONTINUOUS,  20, 128, 0},
-	{DOWNLINK, TCP, CONTINUOUS,  10, 256, 0},
-	{DOWNLINK, TCP, CONTINUOUS,  60, 512, 0},
+	{UPLINK, UDP, CONTINUOUS,  15, 1000, 0},
+	{DOWNLINK, UDP, CONTINUOUS,  25, 1000, 0},
+	{DOWNLINK, UDP, CONTINUOUS,  10, 512, 0},
+	{DOWNLINK, UDP, CONTINUOUS,  60, 1000, 0},
 	// Add more TX cases here
 
 	// 5 RX cases with different packet lengths
