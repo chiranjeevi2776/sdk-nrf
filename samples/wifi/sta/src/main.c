@@ -112,7 +112,7 @@ struct k_thread udp_server_thread;
 struct k_sem start_client_sem, start_server_sem;
 #endif
 
-#define ENABLE_TWT 0
+#define ENABLE_TWT 1
 #define BUFFER_SIZE 1024
 
 /* Define thread entry functions */
@@ -132,11 +132,11 @@ int setupTWT()
 	params.dialog_token = 1;
 	params.flow_id = 1;
 	params.setup.responder = 0;
-	params.setup.trigger = 1;
+	params.setup.trigger = 0;
 	params.setup.implicit = 1;
-	params.setup.announce = 1;
+	params.setup.announce = 0;
 	params.setup.twt_wake_interval = 65000;
-	params.setup.twt_interval = 1000000;
+	params.setup.twt_interval = 524000;
 
         if (net_mgmt(NET_REQUEST_WIFI_TWT, iface, &params, sizeof(params))) {
 		LOG_INF("TWT SETUP FAILED\n");
@@ -208,7 +208,11 @@ int udp_client(int num)
 
 	/* Send Empty Msg to indicate End of TX */
 	{
+		k_sleep(K_SECONDS(1));
 		char empty_data = '\0';
+		sendto(sockfd, &empty_data, 0, 0, (struct sockaddr *)&server_addr, addr_len);
+		sendto(sockfd, &empty_data, 0, 0, (struct sockaddr *)&server_addr, addr_len);
+		sendto(sockfd, &empty_data, 0, 0, (struct sockaddr *)&server_addr, addr_len);
 		sendto(sockfd, &empty_data, 0, 0, (struct sockaddr *)&server_addr, addr_len);
 	}
 
@@ -358,7 +362,13 @@ int tcp_client(int num)
 
 	/* Send empty msg to the server to indicate end of TX */
 	{
+		k_sleep(K_SECONDS(1));
 		char empty_data = '\0';
+		send(sockfd, &empty_data, 0, 0);
+		send(sockfd, &empty_data, 0, 0);
+		send(sockfd, &empty_data, 0, 0);
+		k_sleep(K_SECONDS(1));
+		send(sockfd, &empty_data, 0, 0);
 		send(sockfd, &empty_data, 0, 0);
 	}
 
@@ -503,14 +513,24 @@ void print_report(int client_role)
 
 	if(client_role == UPLINK)
 	{
-		LOG_INF(" ###### UPLINK REPORT ########\n\t");
 		k_sleep(K_SECONDS(5));
+		printf("\n");
+		printf("|             Server Report                  |\n");
+		printf("|-------------------------------------------|\n");
+		printf("| Total Bytes Received  : %-15u |\n",ntohl(report->bytes_received));
+		printf("| Total Packets Received: %-15u |\n",ntohl(report->packets_received));
+		printf("| Total Elapsed Time    : %-15u |\n",ntohl(report->packets_received));
+		printf("| Throughput (Mbps)     : %-15.2f |\n",network_order_to_double(report->throughput));
+		printf("| Elapsed Time          : %-15.2f |\n",network_order_to_double(report->elapsed_time));
+		printf("=============================================\n");
+#if 0
 	        /* Make sure LOG_INF will not print floating values */
 		printf("UPLINK Num of Bytes Received %d\n\t",ntohl(report->bytes_received));
 		printf("Num of PKTS Received %d\n\t",ntohl(report->packets_received));
 		printf("Elapsed Time %f Seconds\n\t",network_order_to_double(report->elapsed_time));
 		printf("Throuhput %f Mbps\n\t",network_order_to_double(report->throughput));
 		printf("Average Jitter %f ms\n\t",network_order_to_double(report->average_jitter));
+#endif
 	} else {
 		LOG_INF(" ###### DOWNLINK REPORT ########\n\t");
 		k_sleep(K_SECONDS(5));
@@ -939,6 +959,11 @@ int main(void)
 
 		k_sleep(K_MSEC(5000));
 		if (context.connected) {
+#if ENABLE_TWT
+			LOG_INF("TWT ENABLED\n");
+			setupTWT();
+#endif
+			k_sleep(K_SECONDS(1));
 			int test_case_no, ret_val = 0;
 			ret_val = init_tcp();
 			if(ret_val < 0)
@@ -956,9 +981,6 @@ int main(void)
 				LOG_INF("TEST CASE: %d Completed\n", test_case_no);
 				k_sleep(K_SECONDS(10));
 			}
-#if ENABLE_TWT
-			setupTWT();
-#endif
 			k_sleep(K_MSEC(1000));
 			LOG_INF("Releasing client and server sem\n");
 #if ENABLE_KTHREADS

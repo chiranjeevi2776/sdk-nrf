@@ -38,8 +38,8 @@ struct server_report {
 // Array of predefined test cases
 struct cmd test_case[MAX_TEST_CASES] = {
 	// 5 TX cases with different packet lengths
-	{UPLINK, UDP, CONTINUOUS,  15, 1000, 0},
-	{DOWNLINK, UDP, CONTINUOUS,  25, 1000, 0},
+	{UPLINK, TCP, CONTINUOUS,  15, 1000, 0},
+	{DOWNLINK, TCP, CONTINUOUS,  25, 1000, 0},
 	{DOWNLINK, UDP, CONTINUOUS,  10, 512, 0},
 	{DOWNLINK, UDP, CONTINUOUS,  60, 1000, 0},
 	// Add more TX cases here
