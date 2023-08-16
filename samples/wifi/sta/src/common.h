@@ -2,7 +2,7 @@
 #define COMMON_H
 
 #define MAX_TEST_CASES  20
-#define CURR_TEST_CASE_CNT 2
+#define CURR_TEST_CASE_CNT 1
 
 /* client role */
 #define UPLINK 1

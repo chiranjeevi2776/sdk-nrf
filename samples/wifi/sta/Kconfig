@@ -6,7 +6,7 @@
 
 source "Kconfig.zephyr"
 
-menu "Nordic Sta sample"
+menu "Nordic TWT sample"
 
 config CONNECTION_IDLE_TIMEOUT
 	int "Time to be waited for a station to connect"
@@ -52,4 +52,29 @@ config NRF700X_QSPI_ENCRYPTION_KEY
 	depends on BOARD_NRF7002DK_NRF5340_CPUAPP
 	help
 	  Specify the QSPI encryption key
+
+config PEER_IPV4_ADDR
+	string "Peer IPv4 address"
+	default "192.168.1.140"
+
+config PEER_CONTROL_PORT
+	int "Peer IPv4 TCP port"
+	default 7777
+
+config PEER_UPLINK_DATA_PORT
+	int "Peer IPv4 TCP or UDP port"
+	default 7778
+
+config ZEPHYR_DOWNLINK_DATA_PORT
+	int "Zephyr IPv4 TCP or UDP port"
+	default 7776
+
+config MAX_SOCK_BUFFER
+	int "max socket buff for read/write"
+	default 1024
+
+config WIFI_TEST_DURATION
+	int "test duration in milliseconds"
+	default 60
+
 endmenu
