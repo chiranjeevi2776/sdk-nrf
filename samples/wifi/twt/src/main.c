@@ -25,6 +25,7 @@ LOG_MODULE_REGISTER(twt, CONFIG_LOG_DEFAULT_LEVEL);
 #include <zephyr/drivers/gpio.h>
 
 #include "net_private.h"
+#include "traffic_gen.h"
 
 #define WIFI_SHELL_MODULE "wifi"
 
@@ -37,6 +38,8 @@ LOG_MODULE_REGISTER(twt, CONFIG_LOG_DEFAULT_LEVEL);
 #define CONNECTION_TIMEOUT  100
 #define STATUS_POLLING_MS   300
 #define TWT_RESP_TIMEOUT_S    20
+
+struct traffic_gen_config tg_config;
 
 static struct net_mgmt_event_callback wifi_shell_mgmt_cb;
 static struct net_mgmt_event_callback net_shell_mgmt_cb;
@@ -408,6 +411,7 @@ int main(void)
 
 			LOG_INF("AP is TWT capable, establishing TWT");
 
+#if 0
 			ret = setup_twt();
 			if (ret) {
 				LOG_ERR("Failed to establish TWT flow: %d\n", ret);
@@ -419,14 +423,28 @@ int main(void)
 			} else {
 				LOG_INF("TWT Setup timed out\n");
 			}
+#endif
+
+			/* Start uplink/downlink traffic */
+			traffic_gen_init(&tg_config);
+
+			/* Start the trafiic with traffic_gen_config */
+			ret = traffic_gen_start(&tg_config);
+			if (ret < 0) {
+				LOG_ERR("Failed to start generating traffic ");
+				return 1;
+			}
 
 			/* Wait for few service periods before tearing down */
 			k_sleep(K_USEC(5 * CONFIG_TWT_INTERVAL));
+#if 0
 			ret = teardown_twt();
 			if (ret) {
 				LOG_ERR("Failed to teardown TWT flow: %d\n", ret);
 				return 1;
 			}
+#endif
+
 			return 0;
 		} else if (!context.connect_result) {
 			LOG_ERR("Connection Timed Out");
