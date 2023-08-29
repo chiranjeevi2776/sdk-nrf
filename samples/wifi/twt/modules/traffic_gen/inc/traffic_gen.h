@@ -35,14 +35,14 @@ struct twt_server_config {
 struct server_report {
 	int bytes_received;
 	int packets_received;
-	uint64_t elapsed_time;
-	uint64_t throughput;
-	uint64_t average_jitter;
+	int elapsed_time;
+	int throughput;
+	int average_jitter;
 	char server_ip[INET_ADDRSTRLEN];
 	int server_port;
 };
 
-extern struct server_report local_report;
+extern struct server_report twt_client_report;
 
 /* traffic gen module */
 void traffic_gen_init(struct traffic_gen_config *);

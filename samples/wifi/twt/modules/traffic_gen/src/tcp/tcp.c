@@ -22,7 +22,7 @@ LOG_MODULE_DECLARE(twt, CONFIG_LOG_DEFAULT_LEVEL);
 #define BUFFER_SIZE CONFIG_WIFI_TWT_PAYLOAD_SIZE
 #define MAX_EMPTY_MSG_LOOP_CNT 5
 
-struct server_report local_report;
+struct server_report twt_client_report;
 
 int init_tcp_client(struct traffic_gen_config *tg_config)
 {
@@ -116,6 +116,14 @@ int init_tcp_server(struct traffic_gen_config *tg_config)
 		return -errno;
 	}
 
+	if (listen(sockfd, 3) < 0) {
+		LOG_ERR("Failed to listen on TCP socket %d", errno);
+		close(sockfd);
+		return -errno;
+	}
+
+	LOG_INF("TCP server is listening on port %d", tg_config->port);
+
 	return sockfd;
 }
 
@@ -127,15 +135,7 @@ int recv_tcp_downlink_traffic(struct traffic_gen_config *tg_config)
 	int prev_packet_time_ms = 0, current_packet_time_ms, jitter;
 	int jitter_sum_ms = 0;
 	uint32_t current_time, start_time;
-	double elapsed_time = 0.0, throughput_mbps = 0;
-
-	if (listen(tg_config->data_sock_fd, 3) < 0) {
-		LOG_ERR("Failed to listen on TCP socket %d", errno);
-		close(tg_config->data_sock_fd);
-		return -errno;
-	}
-
-	LOG_INF("TCP server is listening on port %d", tg_config->port);
+	int elapsed_time = 0, throughput_mbps = 0;
 
 	sockfd = accept(tg_config->data_sock_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 	if (sockfd < 0) {
@@ -144,7 +144,7 @@ int recv_tcp_downlink_traffic(struct traffic_gen_config *tg_config)
 		return -errno;
 	}
 
-	memset(&local_report, 0 , sizeof(struct server_report));
+	memset(&twt_client_report, 0 , sizeof(struct server_report));
 
         start_time = k_uptime_get_32();
 	while (1) {
@@ -154,13 +154,13 @@ int recv_tcp_downlink_traffic(struct traffic_gen_config *tg_config)
 			break;
 		}
 
-		local_report.bytes_received += bytes;
-		local_report.packets_received++;
+		twt_client_report.bytes_received += bytes;
+		twt_client_report.packets_received++;
 
 		// Calculate throughput
 		current_time = k_uptime_get_32();
-		elapsed_time = (double)(current_time - start_time) / 1000.0; // Convert to seconds
-		//throughput_mbps = (double)(local_report.bytes_received * 8) / (elapsed_time * 1000000);
+		elapsed_time = (current_time - start_time) / 1000; // Convert to seconds
+		//throughput_mbps = (double)(twt_client_report.bytes_received * 8) / (elapsed_time * 1000000);
 
 		// Calculate jitter
 		current_packet_time_ms = current_time;
@@ -169,18 +169,18 @@ int recv_tcp_downlink_traffic(struct traffic_gen_config *tg_config)
 		prev_packet_time_ms = current_packet_time_ms;
 	}
 
-	if (local_report.packets_received > 1) {
-		throughput_mbps = (double)(local_report.bytes_received * 8) / (elapsed_time * 1000000);
-		double average_jitter_ms = (double)jitter_sum_ms / (local_report.packets_received - 1);
-		local_report.average_jitter = double_to_uint64(average_jitter_ms);
-		local_report.elapsed_time = double_to_uint64(elapsed_time);
-		local_report.throughput = double_to_uint64(throughput_mbps);
+	if (twt_client_report.packets_received > 1) {
+		throughput_mbps = (twt_client_report.bytes_received * 8) / (elapsed_time * 1000);
+		int average_jitter_ms = jitter_sum_ms / (twt_client_report.packets_received - 1);
+		twt_client_report.average_jitter = average_jitter_ms;
+		twt_client_report.elapsed_time = elapsed_time;
+		twt_client_report.throughput = throughput_mbps;
 
-		LOG_INF("Elapsed Time %0.2f Seconds",elapsed_time);
-		LOG_INF("Throuhput %0.2f Mbps",throughput_mbps);
-		LOG_INF("Average Jitter %0.2f ms",average_jitter_ms);
+		LOG_INF("Elapsed Time %d Seconds",elapsed_time);
+		LOG_INF("Throuhput %d Kbps",throughput_mbps);
+		LOG_INF("Average Jitter %d ms",average_jitter_ms);
 	} else {
-		local_report.average_jitter = 0;
+		twt_client_report.average_jitter = 0;
 	}
 
 	close(sockfd);

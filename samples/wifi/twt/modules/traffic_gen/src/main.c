@@ -54,34 +54,26 @@ void print_report(struct traffic_gen_config *tg_config)
 {
 	struct server_report *report = (struct server_report *)report_buffer;
 
-	if(tg_config->role == TWT_CLIENT)
-	{
-		k_sleep(K_SECONDS(5));
+	if (tg_config->role == TWT_CLIENT) {
 		LOG_INF("\n");
 		LOG_INF("|             Server Report                  |\n");
-		LOG_INF("|-------------------------------------------|\n");
+		LOG_INF("|--------------------------------------------|\n");
 		LOG_INF("| Total Bytes Received  : %-15u |\n",ntohl(report->bytes_received));
 		LOG_INF("| Total Packets Received: %-15u |\n",ntohl(report->packets_received));
-		LOG_INF("| Total Elapsed Time    : %-15u |\n",ntohl(report->packets_received));
-		LOG_INF("| Throughput (Mbps)     : %-15.2f |\n",network_order_to_double(report->throughput));
-		LOG_INF("| Elapsed Time          : %-15.2f |\n",network_order_to_double(report->elapsed_time));
+		LOG_INF("| Elapsed Time          : %-15u |\n",ntohl(report->elapsed_time));
+		LOG_INF("| Throughput (Kbps)     : %-15u |\n",ntohl(report->throughput)); 
+		LOG_INF("| Average Jitter (ms)   : %-15u |\n",ntohl(report->average_jitter));
 		LOG_INF("=============================================\n");
-#if 0
-	        /* Make sure LOG_INF will not print floating values */
-		printf("UPLINK Num of Bytes Received %d\n\t",ntohl(report->bytes_received));
-		printf("Num of PKTS Received %d\n\t",ntohl(report->packets_received));
-		printf("Elapsed Time %f Seconds\n\t",network_order_to_double(report->elapsed_time));
-		printf("Throuhput %f Mbps\n\t",network_order_to_double(report->throughput));
-		printf("Average Jitter %f ms\n\t",network_order_to_double(report->average_jitter));
-#endif
 	} else {
-		LOG_INF(" ###### DOWNLINK REPORT ########\n\t");
-		k_sleep(K_SECONDS(5));
-		LOG_INF("DOWNLINK Num of Bytes Received %d\n\t",(report->bytes_received));
-		LOG_INF("Num of PKTS Received %d\n\t",(report->packets_received));
-		LOG_INF("1Elapsed Time %.2f Seconds\n\t",uint64_to_double(report->elapsed_time));
-		LOG_INF("2Throuhput %.2f Mbps\n\t",uint64_to_double(report->throughput));
-		LOG_INF("3Average Jitter %.2f ms\n\t",uint64_to_double(report->average_jitter));
+		LOG_INF("\n");
+		LOG_INF("|             Client Report                  |\n");
+		LOG_INF("|--------------------------------------------|\n");
+		LOG_INF("| Total Bytes Received  : %-15u |\n",(report->bytes_received));
+		LOG_INF("| Total Packets Received: %-15u |\n",(report->packets_received));
+		LOG_INF("| Elapsed Time          : %-15u |\n",(report->elapsed_time));
+		LOG_INF("| Throughput (Kbps)     : %-15u |\n",(report->throughput)); 
+		LOG_INF("| Average Jitter (ms)   : %-15u |\n",(report->average_jitter));
+		LOG_INF("=============================================\n");
 	}
 }
 
@@ -97,7 +89,7 @@ int wait_for_report(struct traffic_gen_config *tg_config)
 	/* Wait for a response upto the REPORT_TIMEOUT from the server */
 	timeout.tv_sec = REPORT_TIMEOUT;
 	timeout.tv_usec = 0;
-#if 1 /* 9999 */
+#if 0 /* 9999 */
 	ret = setsockopt(tg_config->ctrl_sock_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 	if (ret < 0) {
 		LOG_ERR("Failed to set socket option");
@@ -108,7 +100,7 @@ int wait_for_report(struct traffic_gen_config *tg_config)
 	if (tg_config->role == TWT_CLIENT) {
 		bytes_received = recv(tg_config->ctrl_sock_fd, report_buffer, REPORT_BUFFER_SIZE, 0);
 	} else {
-		memcpy(report_buffer, (uint8_t *)&local_report, sizeof(struct server_report));
+		memcpy(report_buffer, (uint8_t *)&twt_client_report, sizeof(struct server_report));
 	}
 
 	if (bytes_received > 0) {
@@ -156,7 +148,7 @@ static int connect_to_twt_server(struct traffic_gen_config *tg_config)
 	}
 
 	LOG_INF("Connected To TWT Server!!!");
-	k_sleep(K_SECONDS(10));
+	k_sleep(K_SECONDS(3));
 
 	return sockfd;
 }
@@ -292,7 +284,7 @@ int traffic_gen_start(struct traffic_gen_config *tg_config)
 	 *  - server will create data socket
 	 *  - do uplink/downlink traffic based traffic configuration 
 	 */
-	k_sleep(K_SECONDS(10));
+	k_sleep(K_SECONDS(5));
 
 	/* Create data path socket for uplink/downlink traffic */
 	ret = setup_data_path(tg_config);
