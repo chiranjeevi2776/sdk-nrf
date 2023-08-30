@@ -425,6 +425,8 @@ int main(void)
 			}
 #endif
 
+			k_sleep(K_SECONDS(5));
+
 			/* Start uplink/downlink traffic */
 			traffic_gen_init(&tg_config);
 

@@ -38,8 +38,6 @@ struct server_report {
 	int elapsed_time;
 	int throughput;
 	int average_jitter;
-	char server_ip[INET_ADDRSTRLEN];
-	int server_port;
 };
 
 extern struct server_report twt_client_report;

@@ -73,24 +73,24 @@ config TWT_INTERVAL
 	default 524000
 
 choice WIFI_TWT_SELECT_ROLE
-	prompt "TWT ROLE"
-	default WIFI_TWT_SERVER
+	prompt "APP should be either client or server"
+	default WIFI_TWT_CLIENT
 
 config WIFI_TWT_CLIENT
-	bool "Uplink Traffic"
+	bool "TWT app acts as a Client" 
 	help
-	 Send traffic from DUT to Server.
+	 Send uplink traffic from APP to TWT Server.
 
 config WIFI_TWT_SERVER
-	bool "Downlink Traffic"
+	bool "TWT app acts as a Server"
 	help
-	  Receive traffic from Server to DUT.
+	  Receive downlink traffic from Server to APP.
 endchoice
 
 config WIFI_TWT_TCP
 	int "Traffic type"
 	help
-	  Specifies traffic type as tcp data
+	  Specifies the traffic type as TCP data
 	default 2
 
 config WIFI_TWT_MODE
@@ -100,8 +100,10 @@ config WIFI_TWT_MODE
 	default y
 
 config WIFI_TWT_TEST_DURATION
-	int "TWT traffic test duration in seconds"
+	int "Application will simulate traffic for a specified duration"
 	default 20
+	help
+	  The default unit for duration is seconds
 
 config WIFI_TWT_SERVER_IPV4_ADDR
 	string "TWT Server IPv4 address"
@@ -112,7 +114,7 @@ config WIFI_TWT_SERVER_IPV4_ADDR
 config WIFI_TWT_SERVER_PORT_NUM
 	int "TWT server IPv4 port"
 	help
-	  TWT server listening for data on this port.
+	  TWT server will send or recv data on this port
 	default 7777
 
 config WIFI_TWT_PAYLOAD_SIZE

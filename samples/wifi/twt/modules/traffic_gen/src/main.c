@@ -25,31 +25,6 @@ LOG_MODULE_DECLARE(twt, CONFIG_LOG_DEFAULT_LEVEL);
 
 unsigned char report_buffer[REPORT_BUFFER_SIZE];
 
-uint64_t double_to_uint64(double value)
-{
-    uint64_t result;
-    memcpy(&result, &value, sizeof(uint64_t));
-    return (result);
-}
-
-double uint64_to_double(uint64_t value)
-{
-	double result;
-
-	memcpy(&result, &value, sizeof(double));
-	return result;
-}
-
-/* Function to convert network-order uint64_t to double */
-double network_order_to_double(uint64_t value)
-{
-	double result;
-	uint64_t beValue = ntohll(value);
-
-	memcpy(&result, &beValue, sizeof(double));
-	return result;
-}
-
 void print_report(struct traffic_gen_config *tg_config)
 {
 	struct server_report *report = (struct server_report *)report_buffer;
@@ -304,16 +279,16 @@ void traffic_gen_init(struct traffic_gen_config *tg_config)
 {
 	memset((unsigned char *)tg_config, 0, sizeof(struct traffic_gen_config));
 
-	if (IS_ENABLED(CONFIG_WIFI_TWT_CLIENT)) {
+#ifdef CONFIG_WIFI_TWT_CLIENT
 		tg_config->role = TWT_CLIENT;
 		LOG_INF("TWT APP ROLE: Client");
-	} else if (IS_ENABLED(CONFIG_WIFI_TWT_SERVER)) {
+#elif CONFIG_WIFI_TWT_SERVER
 		tg_config->role = TWT_SERVER;
 		LOG_INF("TWT APP ROLE: Server");
-	} else {
+#else
 		LOG_INF("Configure TWT app as either client/server");
 		return;
-	}
+#endif
 
 	tg_config->type = CONFIG_WIFI_TWT_TCP;
 	tg_config->mode = 1;//CONFIG_WIFI_TWT_MODE;
