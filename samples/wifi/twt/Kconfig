@@ -83,4 +83,55 @@ config TWT_INTERVAL
 	  Please note higher intervals can be rejected by AP or cause interoperability issues.
 	default 524000
 
+choice WIFI_TWT_SELECT_ROLE
+	prompt "APP should be either client or server"
+	default WIFI_TWT_CLIENT
+
+config WIFI_TWT_CLIENT
+	bool "TWT app acts as a Client" 
+	help
+	 Send uplink traffic from APP to TWT Server.
+
+config WIFI_TWT_SERVER
+	bool "TWT app acts as a Server"
+	help
+	  Receive downlink traffic from Server to APP.
+endchoice
+
+config WIFI_TWT_TCP
+	int "Traffic type"
+	help
+	  Specifies the traffic type as TCP data
+	default 2
+
+config WIFI_TWT_MODE
+	bool "Traffic mode"
+	help
+	  Specifies traffic mode as continuous or delayed
+	default y
+
+config WIFI_TWT_TEST_DURATION
+	int "Application will simulate traffic for a specified duration"
+	default 30
+	help
+	  The default unit for duration is seconds
+
+config WIFI_TWT_SERVER_IPV4_ADDR
+	string "TWT Server IPv4 address"
+	help
+	  Where TWT server should run before running the TWT APP.
+	default "192.168.1.140"
+
+config WIFI_TWT_SERVER_PORT_NUM
+	int "TWT server IPv4 port"
+	help
+	  TWT server will send or recv data on this port
+	default 7777
+
+config WIFI_TWT_PAYLOAD_SIZE
+	int "Payload size"
+	help
+	  default payload size for each packet
+	default 1024
+
 endmenu

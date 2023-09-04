@@ -25,6 +25,7 @@ LOG_MODULE_REGISTER(twt, CONFIG_LOG_DEFAULT_LEVEL);
 #include <zephyr/drivers/gpio.h>
 
 #include "net_private.h"
+#include "traffic_gen.h"
 
 #define WIFI_SHELL_MODULE "wifi"
 
@@ -35,6 +36,8 @@ LOG_MODULE_REGISTER(twt, CONFIG_LOG_DEFAULT_LEVEL);
 #define MAX_SSID_LEN        32
 #define STATUS_POLLING_MS   300
 #define TWT_RESP_TIMEOUT_S    20
+
+struct traffic_gen_config tg_config;
 
 static struct net_mgmt_event_callback wifi_shell_mgmt_cb;
 static struct net_mgmt_event_callback net_shell_mgmt_cb;
@@ -308,11 +311,11 @@ static void net_mgmt_event_handler(struct net_mgmt_event_callback *cb,
 
 static int __wifi_args_to_params(struct wifi_connect_req_params *params)
 {
-        params->timeout =  CONFIG_STA_CONN_TIMEOUT_SEC * MSEC_PER_SEC;
+	params->timeout =  CONFIG_STA_CONN_TIMEOUT_SEC * MSEC_PER_SEC;
 
-        if (params->timeout == 0) {
-                params->timeout = SYS_FOREVER_MS;
-        }
+	if (params->timeout == 0) {
+		params->timeout = SYS_FOREVER_MS;
+	}
 
 	/* SSID */
 	params->ssid = CONFIG_TWT_SAMPLE_SSID;
@@ -350,7 +353,7 @@ static int wifi_connect(void)
 	__wifi_args_to_params(&cnx_params);
 
 	if (net_mgmt(NET_REQUEST_WIFI_CONNECT, iface,
-		     &cnx_params, sizeof(struct wifi_connect_req_params))) {
+				&cnx_params, sizeof(struct wifi_connect_req_params))) {
 		LOG_ERR("Connection request failed");
 
 		return -ENOEXEC;
@@ -366,14 +369,14 @@ int main(void)
 	memset(&context, 0, sizeof(context));
 
 	net_mgmt_init_event_callback(&wifi_shell_mgmt_cb,
-				     wifi_mgmt_event_handler,
-				     WIFI_SHELL_MGMT_EVENTS);
+			wifi_mgmt_event_handler,
+			WIFI_SHELL_MGMT_EVENTS);
 
 	net_mgmt_add_event_callback(&wifi_shell_mgmt_cb);
 
 	net_mgmt_init_event_callback(&net_shell_mgmt_cb,
-				     net_mgmt_event_handler,
-				     NET_EVENT_IPV4_DHCP_BOUND);
+			net_mgmt_event_handler,
+			NET_EVENT_IPV4_DHCP_BOUND);
 
 	net_mgmt_add_event_callback(&net_shell_mgmt_cb);
 
@@ -381,17 +384,17 @@ int main(void)
 	k_sleep(K_SECONDS(1));
 
 	LOG_INF("Static IP address (overridable): %s/%s -> %s",
-		CONFIG_NET_CONFIG_MY_IPV4_ADDR,
-		CONFIG_NET_CONFIG_MY_IPV4_NETMASK,
-		CONFIG_NET_CONFIG_MY_IPV4_GW);
+			CONFIG_NET_CONFIG_MY_IPV4_ADDR,
+			CONFIG_NET_CONFIG_MY_IPV4_NETMASK,
+			CONFIG_NET_CONFIG_MY_IPV4_GW);
 
 	while (1) {
 		wifi_connect();
 
-                while (!context.connect_result) {
-                        cmd_wifi_status();
-                        k_sleep(K_MSEC(STATUS_POLLING_MS));
-                }
+		while (!context.connect_result) {
+			cmd_wifi_status();
+			k_sleep(K_MSEC(STATUS_POLLING_MS));
+		}
 
 		cmd_wifi_status();
 
@@ -420,15 +423,32 @@ int main(void)
 				return -1;
 			}
 
+			k_sleep(K_SECONDS(5));
+
+			/* Start uplink/downlink traffic */
+			traffic_gen_init(&tg_config);
+
+			/* Start the trafiic with traffic_gen_config */
+			ret = traffic_gen_start(&tg_config);
+			if (ret < 0) {
+				LOG_ERR("Failed to start generating traffic ");
+				return 1;
+			}
+
+			traffic_gen_wait_for_report(&tg_config);
+
+			traffic_gen_get_report(&tg_config);
+
 			/* Wait for few service periods before tearing down */
 			k_sleep(K_USEC(5 * CONFIG_TWT_INTERVAL));
+
 			ret = teardown_twt();
 			if (ret) {
 				LOG_ERR("Failed to teardown TWT flow: %d\n", ret);
 				return -1;
 			}
 
-                        k_sleep(K_FOREVER);
+			k_sleep(K_FOREVER);
 		}
 	}
 
