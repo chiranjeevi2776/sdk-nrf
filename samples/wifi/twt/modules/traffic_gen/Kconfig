@@ -33,6 +33,7 @@ config TRAFFIC_GEN_DURATION
 
 config TRAFFIC_GEN_REMOTE_IPV4_ADDR
 	string "Traffic gen remote host IPv4 address"
+	default "192.168.1.140"
 	help
 	  Traffic gen server IPv4 address
 
