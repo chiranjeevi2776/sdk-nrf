@@ -8,6 +8,46 @@ source "Kconfig.zephyr"
 
 menu "Nordic Wi-Fi Promiscuous mode sample"
 
+config CONNECTION_TIMEOUT
+	int "Time to wait for a station to connect"
+	default 30
+
+config PROMISCUOUS_SAMPLE_SSID
+	string "SSID"
+	help
+	  Specify the SSID to establish a wireless connection with
+	  an Access point in Connected Station mode.
+
+choice PROMISCUOUS_SAMPLE_KEY_MGMT_SELECT
+	prompt "Security Option"
+	default PROMISCUOUS_SAMPLE_KEY_MGMT_WPA3
+
+config PROMISCUOUS_SAMPLE_KEY_MGMT_NONE
+	bool "Open Security"
+	help
+	  Enable for Open Security
+
+config PROMISCUOUS_SAMPLE_KEY_MGMT_WPA2
+	bool "WPA2 Security"
+	help
+	  Enable for WPA2 Security
+
+config PROMISCUOUS_SAMPLE_KEY_MGMT_WPA2_256
+	bool "WPA2 SHA 256 Security"
+	help
+	  Enable for WPA2-PSK-256 Security
+
+config PROMISCUOUS_SAMPLE_KEY_MGMT_WPA3
+	bool "WPA3 Security"
+	help
+	  Enable for WPA3 Security
+endchoice
+
+config PROMISCUOUS_SAMPLE_PASSWORD
+	string "Passphrase (WPA2) or password (WPA3)"
+	help
+	  Specify the Password to connect
+
 config PROMISCUOUS_MODE_REG_DOMAIN_ALPHA2
 	string "Configure the regulatory domain for Promiscuous mode sample"
 	default "00"
